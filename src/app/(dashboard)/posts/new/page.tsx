@@ -32,6 +32,7 @@ export default function NewPostPage() {
   const [error, setError] = useState("");
   const [driveUrl, setDriveUrl] = useState("");
   const [importing, setImporting] = useState(false);
+  const [driveImportType, setDriveImportType] = useState<"text" | "media">("text");
   const [scheduledAt, setScheduledAt] = useState("");
   const [scheduling, setScheduling] = useState(false);
   const [aiUrl, setAiUrl] = useState("");
@@ -113,7 +114,7 @@ export default function NewPostPage() {
       const res = await fetch("/api/import/gdrive", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url: driveUrl.trim() }),
+        body: JSON.stringify({ url: driveUrl.trim(), type: driveImportType }),
       });
 
       const data = await res.json();
@@ -124,11 +125,26 @@ export default function NewPostPage() {
         return;
       }
 
-      // Append or replace content
-      if (content.trim()) {
-        setContent((prev) => prev + "\n\n" + data.content);
+      if (driveImportType === "media") {
+        // Add to media list
+        setMedia((prev) => [
+          ...prev,
+          {
+            filePath: data.filePath,
+            fileName: data.fileName,
+            fileSize: data.fileSize,
+            mimeType: data.mimeType,
+            fileType: data.fileType,
+            url: data.url,
+          },
+        ]);
       } else {
-        setContent(data.content);
+        // Append or replace content
+        if (content.trim()) {
+          setContent((prev) => prev + "\n\n" + data.content);
+        } else {
+          setContent(data.content);
+        }
       }
       setDriveUrl("");
     } catch {
@@ -476,12 +492,43 @@ export default function NewPostPage() {
           <label className="block text-sm font-medium text-gray-700 mb-2">
             Import từ Google Drive
           </label>
+
+          {/* Import type toggle */}
+          <div className="flex gap-2 mb-3">
+            <button
+              type="button"
+              onClick={() => setDriveImportType("text")}
+              className={`px-3 py-1.5 rounded-md text-sm transition-colors ${
+                driveImportType === "text"
+                  ? "bg-green-600 text-white"
+                  : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+              }`}
+            >
+              📝 Nội dung text
+            </button>
+            <button
+              type="button"
+              onClick={() => setDriveImportType("media")}
+              className={`px-3 py-1.5 rounded-md text-sm transition-colors ${
+                driveImportType === "media"
+                  ? "bg-green-600 text-white"
+                  : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+              }`}
+            >
+              🖼 Ảnh / Video / PDF
+            </button>
+          </div>
+
           <div className="flex gap-2">
             <input
               type="url"
               value={driveUrl}
               onChange={(e) => setDriveUrl(e.target.value)}
-              placeholder="Paste link Google Docs / Drive"
+              placeholder={
+                driveImportType === "text"
+                  ? "Paste link Google Docs / Sheets"
+                  : "Paste link Google Drive (ảnh, video, PDF)"
+              }
               className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
             />
             <button
@@ -493,7 +540,9 @@ export default function NewPostPage() {
             </button>
           </div>
           <p className="mt-1 text-xs text-gray-500">
-            Hỗ trợ: Google Docs, Google Sheets, Google Drive files (public link).
+            {driveImportType === "text"
+              ? "Hỗ trợ: Google Docs, Google Sheets, Google Drive text files (phải ở chế độ public)."
+              : "Hỗ trợ: ảnh (JPEG, PNG, GIF, WebP), video (MP4, MOV), PDF. File phải ở chế độ 'Bất kỳ ai có đường liên kết'."}
           </p>
         </div>
 

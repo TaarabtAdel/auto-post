@@ -1,12 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { headers } from "next/headers";
-import { parseDriveUrl, fetchDriveContent } from "@/lib/gdrive";
+import { parseDriveUrl, fetchDriveContent, fetchDriveMedia } from "@/lib/gdrive";
+import { writeFile, mkdir } from "fs/promises";
+import { join } from "path";
+import { randomBytes } from "crypto";
 
 /**
- * POST /api/import/gdrive — import content from a Google Drive URL
- * Body: { url: string }
- * Returns: { content: string }
+ * POST /api/import/gdrive — import content or media from a Google Drive URL
+ * Body: { url: string, type?: "text" | "media" }
+ *   type="text" (default): import text content from Docs/Sheets/text files
+ *   type="media": download image/video/PDF and save to uploads
+ * Returns:
+ *   text: { content: string }
+ *   media: { filePath, fileName, fileSize, mimeType, fileType, url }
  */
 export async function POST(request: NextRequest) {
   const session = await auth.api.getSession({
@@ -16,7 +23,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  let body: { url?: string };
+  let body: { url?: string; type?: string };
   try {
     body = await request.json();
   } catch {
@@ -26,7 +33,7 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const { url } = body;
+  const { url, type = "text" } = body;
   if (!url || typeof url !== "string" || url.trim().length === 0) {
     return NextResponse.json(
       { error: "URL là bắt buộc." },
@@ -46,6 +53,32 @@ export async function POST(request: NextRequest) {
   }
 
   try {
+    if (type === "media") {
+      // Download media file from Drive
+      const media = await fetchDriveMedia(fileId);
+
+      // Save to uploads directory
+      const timestamp = Date.now();
+      const random = randomBytes(8).toString("hex");
+      const fileName = `${timestamp}-${random}.${media.ext}`;
+      const userDir = join(process.cwd(), "uploads", session.user.id);
+      const filePath = join(userDir, fileName);
+      const relativePath = `${session.user.id}/${fileName}`;
+
+      await mkdir(userDir, { recursive: true });
+      await writeFile(filePath, media.buffer);
+
+      return NextResponse.json({
+        filePath: relativePath,
+        fileName: `gdrive-${fileId}.${media.ext}`,
+        fileSize: media.size,
+        mimeType: media.mimeType,
+        fileType: media.fileType,
+        url: `/api/uploads/${relativePath}`,
+      });
+    }
+
+    // Default: text import
     const content = await fetchDriveContent(fileId, url.trim());
     return NextResponse.json({ content });
   } catch (error) {
