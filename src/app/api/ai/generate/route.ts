@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { headers } from "next/headers";
-import { generatePostContent } from "@/lib/ai";
+import { generatePostContent, downloadImage } from "@/lib/ai";
+import { writeFile, mkdir } from "fs/promises";
+import { join } from "path";
+import { randomBytes } from "crypto";
 
 // Simple in-memory rate limit: max 10 requests per minute per user
 const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
@@ -26,6 +29,7 @@ function checkRateLimit(userId: string): boolean {
 /**
  * POST /api/ai/generate — generate Facebook post content using AI
  * Body: { url?: string, topic?: string, tone?: string, customPrompt?: string }
+ * Returns: { content: string, images?: MediaFile[], tokensUsed?: number }
  */
 export async function POST(request: NextRequest) {
   const session = await auth.api.getSession({
@@ -71,8 +75,56 @@ export async function POST(request: NextRequest) {
   try {
     const result = await generatePostContent({ url, topic, tone, customPrompt });
 
+    // If URL mode returned images, download and save them
+    const savedImages: Array<{
+      filePath: string;
+      fileName: string;
+      fileSize: number;
+      mimeType: string;
+      fileType: string;
+      url: string;
+    }> = [];
+
+    if (result.images && result.images.length > 0) {
+      const userDir = join(process.cwd(), "uploads", session.user.id);
+      await mkdir(userDir, { recursive: true });
+
+      // Download up to 3 images in parallel
+      const downloadPromises = result.images.slice(0, 3).map(async (imgUrl) => {
+        try {
+          const img = await downloadImage(imgUrl);
+          if (!img) return null;
+
+          const timestamp = Date.now();
+          const random = randomBytes(8).toString("hex");
+          const fileName = `${timestamp}-${random}.${img.ext}`;
+          const filePath = join(userDir, fileName);
+          const relativePath = `${session.user.id}/${fileName}`;
+
+          await writeFile(filePath, img.buffer);
+
+          return {
+            filePath: relativePath,
+            fileName: `ai-extract-${random}.${img.ext}`,
+            fileSize: img.buffer.length,
+            mimeType: img.mimeType,
+            fileType: "image" as const,
+            url: `/api/uploads/${relativePath}`,
+          };
+        } catch {
+          return null;
+        }
+      });
+
+      const results = await Promise.all(downloadPromises);
+      for (const r of results) {
+        if (r) savedImages.push(r);
+      }
+    }
+
     return NextResponse.json({
       content: result.content,
+      images: savedImages.length > 0 ? savedImages : undefined,
       tokensUsed: result.tokensUsed,
     });
   } catch (error) {
