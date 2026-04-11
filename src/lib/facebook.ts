@@ -160,17 +160,6 @@ export async function verifyPageToken(
   }
 }
 
-/**
- * Check if a Graph API error indicates token expiry.
- * Error code 190 = OAuthException (expired/invalid token).
- */
-export function isTokenExpiredError(error: unknown): boolean {
-  if (error instanceof Error) {
-    return error.message.includes("190") || error.message.includes("hết hạn");
-  }
-  return false;
-}
-
 export interface PublishResult {
   success: boolean;
   fbPostId?: string;
