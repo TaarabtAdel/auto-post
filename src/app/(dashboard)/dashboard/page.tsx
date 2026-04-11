@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { auth } from "@/lib/auth";
 import { headers } from "next/headers";
 import { db } from "@/lib/db";
@@ -6,6 +7,10 @@ import { facebookPage } from "@/db/schema/facebook-page";
 import { eq, desc } from "drizzle-orm";
 import Link from "next/link";
 import { StatsCards } from "@/components/stats-cards";
+
+export const metadata: Metadata = {
+  title: "Dashboard",
+};
 
 const STATUS_LABELS: Record<string, { label: string; color: string }> = {
   draft: { label: "Nháp", color: "bg-gray-100 text-gray-700" },

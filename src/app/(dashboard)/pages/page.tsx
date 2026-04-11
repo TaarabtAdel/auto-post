@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { auth } from "@/lib/auth";
 import { headers } from "next/headers";
 import { db } from "@/lib/db";
@@ -6,6 +7,10 @@ import { eq } from "drizzle-orm";
 import { AddPageForm } from "@/components/add-page-form";
 import { PageCard } from "@/components/page-card";
 import { OAuthMessage } from "@/components/oauth-message";
+
+export const metadata: Metadata = {
+  title: "Facebook Pages",
+};
 
 export default async function PagesPage() {
   const session = await auth.api.getSession({
