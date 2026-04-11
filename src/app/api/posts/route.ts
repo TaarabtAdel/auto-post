@@ -6,6 +6,7 @@ import { post, postMedia } from "@/db/schema/post";
 import { facebookPage } from "@/db/schema/facebook-page";
 import { eq, and, desc, inArray } from "drizzle-orm";
 import { randomBytes } from "crypto";
+import { postsLimiter, checkRateLimit } from "@/lib/rate-limit";
 
 interface MediaInput {
   filePath: string;
@@ -101,6 +102,10 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  // Rate limit: 30 posts / min / user
+  const limited = checkRateLimit(postsLimiter, session.user.id);
+  if (limited) return limited;
+
   let body: {
     content?: string;
     facebookPageId?: string;
@@ -116,6 +121,21 @@ export async function POST(request: NextRequest) {
   }
 
   const { content = "", facebookPageId, media = [] } = body;
+
+  // Input validation
+  if (content.length > 10000) {
+    return NextResponse.json(
+      { error: "Nội dung quá dài. Tối đa 10.000 ký tự." },
+      { status: 400 }
+    );
+  }
+
+  if (media.length > 10) {
+    return NextResponse.json(
+      { error: "Tối đa 10 file media." },
+      { status: 400 }
+    );
+  }
 
   // Validate facebookPageId if provided
   if (facebookPageId) {

@@ -5,26 +5,7 @@ import { generatePostContent, downloadImage } from "@/lib/ai";
 import { writeFile, mkdir } from "fs/promises";
 import { join } from "path";
 import { randomBytes } from "crypto";
-
-// Simple in-memory rate limit: max 10 requests per minute per user
-const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
-
-function checkRateLimit(userId: string): boolean {
-  const now = Date.now();
-  const entry = rateLimitMap.get(userId);
-
-  if (!entry || now > entry.resetAt) {
-    rateLimitMap.set(userId, { count: 1, resetAt: now + 60_000 });
-    return true;
-  }
-
-  if (entry.count >= 10) {
-    return false;
-  }
-
-  entry.count++;
-  return true;
-}
+import { aiLimiter, checkRateLimit as checkLimit } from "@/lib/rate-limit";
 
 /**
  * POST /api/ai/generate — generate Facebook post content using AI
@@ -40,12 +21,9 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  if (!checkRateLimit(session.user.id)) {
-    return NextResponse.json(
-      { error: "Quá nhiều yêu cầu. Vui lòng chờ 1 phút." },
-      { status: 429 }
-    );
-  }
+  // Rate limit: 10 AI requests / min / user
+  const limited = checkLimit(aiLimiter, session.user.id);
+  if (limited) return limited;
 
   let body: {
     url?: string;
