@@ -16,7 +16,7 @@ ssh user@your-vps-ip
 
 ```bash
 # Clone project
-git clone YOUR_REPO_URL /var/www/autopost
+git clone https://github.com/dt135/auto-post.git /var/www/autopost
 cd /var/www/autopost
 
 # Hoặc upload code thủ công:
@@ -35,7 +35,7 @@ nano .env
 | Variable | Cách lấy |
 |----------|----------|
 | `BETTER_AUTH_SECRET` | `openssl rand -hex 32` |
-| `BETTER_AUTH_URL` | `https://your-domain.com` |
+| `BETTER_AUTH_URL` | `https://homelyy.duckdns.org` |
 | `ENCRYPTION_KEY` | `openssl rand -hex 32` |
 | `N8N_API_KEY` | `openssl rand -hex 24` |
 | `FACEBOOK_APP_ID` | Facebook Developer Console |
@@ -64,7 +64,7 @@ Sửa domain trong Nginx config:
 
 ```bash
 sudo nano /etc/nginx/sites-available/autopost
-# Thay "your-domain.com" bằng domain thật
+# Thay "homelyy.duckdns.org" bằng domain thật
 sudo nginx -t && sudo systemctl reload nginx
 ```
 
@@ -72,7 +72,7 @@ sudo nginx -t && sudo systemctl reload nginx
 
 ```bash
 sudo apt install certbot python3-certbot-nginx
-sudo certbot --nginx -d your-domain.com
+sudo certbot --nginx -d homelyy.duckdns.org
 ```
 
 Certbot sẽ tự động cấu hình SSL và auto-renew.
@@ -83,12 +83,12 @@ Vào [Facebook Developer Console](https://developers.facebook.com/apps/):
 
 1. **Cài đặt > Cơ bản**: Thêm domain vào "Miền ứng dụng"
 2. **Đăng nhập bằng Facebook > Cài đặt**: 
-   - URI chuyển hướng: `https://your-domain.com/api/auth/facebook/callback`
+   - URI chuyển hướng: `https://homelyy.duckdns.org/api/auth/facebook/callback`
 3. Restart app: `pm2 restart autopost`
 
 ## Bước 8: Tạo tài khoản và test
 
-1. Mở `https://your-domain.com`
+1. Mở `https://homelyy.duckdns.org`
 2. Đăng ký tài khoản mới
 3. Kết nối Facebook Page
 4. Tạo bài viết → Đăng ngay

@@ -6,7 +6,7 @@ set -e
 # ============================================
 
 APP_DIR="/var/www/autopost"
-REPO_URL="YOUR_GIT_REPO_URL"  # Change this
+REPO_URL="https://github.com/dt135/auto-post.git"
 BRANCH="main"
 
 echo "🚀 AutoPost Deploy Script"
@@ -92,9 +92,9 @@ echo "✅ Deploy complete!"
 echo ""
 echo "Next steps:"
 echo "  1. Update nginx/autopost.conf with your domain"
-echo "  2. Setup SSL: sudo certbot --nginx -d your-domain.com"
-echo "  3. Update BETTER_AUTH_URL in .env to https://your-domain.com"
-echo "  4. Update Facebook App redirect URI to https://your-domain.com/api/auth/facebook/callback"
+echo "  2. Setup SSL: sudo certbot --nginx -d homelyy.duckdns.org"
+echo "  3. Update BETTER_AUTH_URL in .env to https://homelyy.duckdns.org"
+echo "  4. Update Facebook App redirect URI to https://homelyy.duckdns.org/api/auth/facebook/callback"
 echo "  5. pm2 restart autopost"
 echo ""
 echo "Useful commands:"
