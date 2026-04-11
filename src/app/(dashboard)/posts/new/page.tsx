@@ -194,6 +194,21 @@ export default function NewPostPage() {
       } else {
         setContent(data.content);
       }
+
+      // Add extracted images to media
+      if (data.images && Array.isArray(data.images)) {
+        setMedia((prev) => [
+          ...prev,
+          ...data.images.map((img: { filePath: string; fileName: string; fileSize: number; mimeType: string; fileType: string; url: string }) => ({
+            filePath: img.filePath,
+            fileName: img.fileName,
+            fileSize: img.fileSize,
+            mimeType: img.mimeType,
+            fileType: img.fileType,
+            url: img.url,
+          })),
+        ]);
+      }
     } catch {
       setError("Lỗi kết nối AI. Vui lòng thử lại.");
     } finally {

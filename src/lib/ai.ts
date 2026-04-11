@@ -9,17 +9,18 @@ function getAiConfig() {
   };
 }
 
-const SYSTEM_PROMPT = `Bạn là chuyên gia viết nội dung Facebook. Nhiệm vụ: viết bài đăng Facebook hấp dẫn, thu hút tương tác.
+const SYSTEM_PROMPT = `Bạn viết bài đăng Facebook giúp user. Viết bằng tiếng Việt, giọng tự nhiên như một người dùng Facebook bình thường — không phải copywriter, không phải bot.
 
-Quy tắc:
-- Viết bằng tiếng Việt (trừ khi user yêu cầu khác)
-- Ngắn gọn, dễ đọc trên mobile (tối đa 500 từ)
-- Có emoji phù hợp nhưng không quá nhiều
-- Có call-to-action (like, share, comment)
-- Chia đoạn rõ ràng, dùng line break
-- KHÔNG dùng hashtag trừ khi user yêu cầu
-- KHÔNG thêm link trừ khi user cung cấp
-- Chỉ trả về nội dung bài viết, KHÔNG thêm giải thích hay ghi chú`;
+Quy tắc bắt buộc:
+- Viết như đang chia sẻ với bạn bè trên Facebook, tự nhiên và chân thực
+- Hạn chế emoji — tối đa 2-3 emoji cho cả bài, chỉ dùng khi thực sự phù hợp. KHÔNG rải emoji khắp nơi
+- KHÔNG dùng các dạng: "🔥🔥🔥", "💯💯", "✨✨✨" hay emoji lặp lại
+- KHÔNG viết kiểu quảng cáo ("Đừng bỏ lỡ!", "Nhanh tay!", "Cực kỳ hot!")
+- Ngắn gọn, dễ đọc trên mobile (150-400 từ tùy nội dung)
+- Chia đoạn tự nhiên, dùng line break
+- Kết bài bằng 3-5 hashtag liên quan, mỗi hashtag trên cùng 1 dòng cuối, cách bài viết 1 dòng trống
+- Hashtag viết liền không dấu hoặc tiếng Anh ngắn gọn (VD: #lamdep #skincare #meovatcuocsong)
+- Chỉ trả về nội dung bài viết, KHÔNG giải thích hay ghi chú thêm`;
 
 interface GenerateInput {
   url?: string;
@@ -30,14 +31,80 @@ interface GenerateInput {
 
 interface AIResponse {
   content: string;
+  images?: string[];
   tokensUsed?: number;
 }
 
 /**
- * Fetch and extract text content from a URL.
- * Basic extraction — strips HTML, takes first ~3000 chars.
+ * Extract images from HTML — og:image and large content images.
  */
-async function fetchUrlContent(url: string): Promise<string> {
+function extractImages(html: string, baseUrl: string): string[] {
+  const images: string[] = [];
+  const seen = new Set<string>();
+
+  // 1. og:image (highest priority)
+  const ogMatch = html.match(/<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i)
+    || html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:image["']/i);
+  if (ogMatch?.[1]) {
+    const url = resolveUrl(ogMatch[1], baseUrl);
+    if (url && !seen.has(url)) {
+      images.push(url);
+      seen.add(url);
+    }
+  }
+
+  // 2. twitter:image
+  const twMatch = html.match(/<meta[^>]+(?:name|property)=["']twitter:image["'][^>]+content=["']([^"']+)["']/i)
+    || html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+(?:name|property)=["']twitter:image["']/i);
+  if (twMatch?.[1]) {
+    const url = resolveUrl(twMatch[1], baseUrl);
+    if (url && !seen.has(url)) {
+      images.push(url);
+      seen.add(url);
+    }
+  }
+
+  // 3. Large content images (from <img> tags with reasonable src)
+  const imgRegex = /<img[^>]+src=["']([^"']+)["'][^>]*>/gi;
+  let match;
+  while ((match = imgRegex.exec(html)) !== null && images.length < 5) {
+    const src = match[0];
+    const url = resolveUrl(match[1], baseUrl);
+    if (!url || seen.has(url)) continue;
+
+    // Skip tiny images (icons, tracking pixels, avatars)
+    const widthMatch = src.match(/width=["']?(\d+)/);
+    const heightMatch = src.match(/height=["']?(\d+)/);
+    if (widthMatch && parseInt(widthMatch[1]) < 200) continue;
+    if (heightMatch && parseInt(heightMatch[1]) < 200) continue;
+
+    // Skip common non-content patterns
+    if (/logo|icon|avatar|badge|button|sprite|tracking|pixel|ads|banner/i.test(url)) continue;
+    if (/\.svg$/i.test(url)) continue;
+    if (/1x1|spacer|blank/i.test(url)) continue;
+
+    images.push(url);
+    seen.add(url);
+  }
+
+  return images.slice(0, 5); // Max 5 images
+}
+
+function resolveUrl(src: string, base: string): string | null {
+  try {
+    if (src.startsWith("data:")) return null;
+    if (src.startsWith("//")) return "https:" + src;
+    if (src.startsWith("http")) return src;
+    return new URL(src, base).href;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Fetch and extract text content + images from a URL.
+ */
+async function fetchUrlContent(url: string): Promise<{ text: string; images: string[] }> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 15_000);
 
@@ -54,6 +121,9 @@ async function fetchUrlContent(url: string): Promise<string> {
     }
 
     const html = await res.text();
+
+    // Extract images before stripping HTML
+    const images = extractImages(html, url);
 
     // Basic HTML → text extraction
     let text = html
@@ -73,7 +143,58 @@ async function fetchUrlContent(url: string): Promise<string> {
       text = text.slice(0, 3000) + "...";
     }
 
-    return text;
+    return { text, images };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+/**
+ * Download an image from URL and return buffer + metadata.
+ */
+async function downloadImage(imageUrl: string): Promise<{
+  buffer: Buffer;
+  mimeType: string;
+  ext: string;
+} | null> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 15_000);
+
+  try {
+    const res = await fetch(imageUrl, {
+      signal: controller.signal,
+      headers: {
+        "User-Agent": "Mozilla/5.0 (compatible; AutoPost/1.0)",
+      },
+      redirect: "follow",
+    });
+
+    if (!res.ok) return null;
+
+    const contentType = (res.headers.get("content-type") || "").split(";")[0].trim();
+    const mimeMap: Record<string, string> = {
+      "image/jpeg": "jpg",
+      "image/png": "png",
+      "image/gif": "gif",
+      "image/webp": "webp",
+    };
+
+    const ext = mimeMap[contentType];
+    if (!ext) return null; // Not a supported image type
+
+    const arrayBuf = await res.arrayBuffer();
+    // Skip tiny images (< 10KB likely icons)
+    if (arrayBuf.byteLength < 10_000) return null;
+    // Skip huge images (> 10MB)
+    if (arrayBuf.byteLength > 10 * 1024 * 1024) return null;
+
+    return {
+      buffer: Buffer.from(arrayBuf),
+      mimeType: contentType,
+      ext,
+    };
+  } catch {
+    return null;
   } finally {
     clearTimeout(timeout);
   }
@@ -81,6 +202,7 @@ async function fetchUrlContent(url: string): Promise<string> {
 
 /**
  * Generate Facebook post content using AI.
+ * When URL is provided, also extracts and downloads images from the page.
  */
 export async function generatePostContent(input: GenerateInput): Promise<AIResponse> {
   const config = getAiConfig();
@@ -90,19 +212,29 @@ export async function generatePostContent(input: GenerateInput): Promise<AIRespo
   }
 
   let userMessage = "";
+  let extractedImages: string[] = [];
 
   if (input.url) {
-    // Fetch URL content first
-    let urlContent: string;
+    // Fetch URL content + images
+    let urlData: { text: string; images: string[] };
     try {
-      urlContent = await fetchUrlContent(input.url);
+      urlData = await fetchUrlContent(input.url);
     } catch (err) {
       throw new Error(`Không thể tải nội dung từ URL: ${err instanceof Error ? err.message : "Unknown error"}`);
     }
 
-    userMessage = `Viết bài đăng Facebook dựa trên nội dung sau:\n\nURL: ${input.url}\n\nNội dung:\n${urlContent}`;
+    extractedImages = urlData.images;
+
+    userMessage = `Viết bài đăng Facebook dựa trên nội dung bài viết sau. Viết lại theo cách hiểu của bạn, như đang chia sẻ với bạn bè — đừng copy nguyên văn.
+
+URL gốc: ${input.url}
+
+Nội dung bài gốc:
+${urlData.text}`;
   } else if (input.topic) {
-    userMessage = `Viết bài đăng Facebook về chủ đề: ${input.topic}`;
+    userMessage = `Viết bài đăng Facebook về: ${input.topic}
+
+Viết tự nhiên, như đang chia sẻ suy nghĩ cá nhân về chủ đề này.`;
   } else if (input.customPrompt) {
     userMessage = input.customPrompt;
   } else {
@@ -112,14 +244,14 @@ export async function generatePostContent(input: GenerateInput): Promise<AIRespo
   // Add tone instruction
   if (input.tone) {
     const toneMap: Record<string, string> = {
-      professional: "Giọng văn chuyên nghiệp, uy tín",
-      friendly: "Giọng văn thân thiện, gần gũi",
-      humorous: "Giọng văn hài hước, vui nhộn",
-      inspiring: "Giọng văn truyền cảm hứng, tích cực",
-      storytelling: "Viết theo dạng kể chuyện, hấp dẫn",
+      professional: "Giọng nghiêm túc, có chiều sâu — nhưng vẫn là ngôn ngữ Facebook, không phải báo cáo",
+      friendly: "Giọng thoải mái, gần gũi như nói chuyện với bạn",
+      humorous: "Giọng hài hước, dí dỏm nhưng tự nhiên — không gượng ép",
+      inspiring: "Giọng truyền cảm hứng nhẹ nhàng, chân thành — không sáo rỗng",
+      storytelling: "Kể lại như một câu chuyện cá nhân, có mở - thân - kết tự nhiên",
     };
     const toneDesc = toneMap[input.tone] || input.tone;
-    userMessage += `\n\nYêu cầu giọng văn: ${toneDesc}`;
+    userMessage += `\n\nGiọng văn: ${toneDesc}`;
   }
 
   const controller = new AbortController();
@@ -139,7 +271,7 @@ export async function generatePostContent(input: GenerateInput): Promise<AIRespo
           { role: "system", content: SYSTEM_PROMPT },
           { role: "user", content: userMessage },
         ],
-        temperature: 0.7,
+        temperature: 0.8,
         max_tokens: 1000,
       }),
       signal: controller.signal,
@@ -172,6 +304,7 @@ export async function generatePostContent(input: GenerateInput): Promise<AIRespo
 
     return {
       content,
+      images: extractedImages,
       tokensUsed: data.usage?.total_tokens,
     };
   } catch (error) {
@@ -183,3 +316,5 @@ export async function generatePostContent(input: GenerateInput): Promise<AIRespo
     clearTimeout(timeout);
   }
 }
+
+export { downloadImage };
