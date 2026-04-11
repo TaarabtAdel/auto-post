@@ -5,10 +5,15 @@ import type { auth } from "@/lib/auth";
 type Session = typeof auth.$Infer.Session;
 
 export async function middleware(request: NextRequest) {
+  // In production behind reverse proxy, use internal HTTP to avoid SSL issues
+  const baseURL = process.env.NODE_ENV === "production" 
+    ? "http://localhost:3000" 
+    : request.nextUrl.origin;
+    
   const { data: session } = await betterFetch<Session>(
     "/api/auth/get-session",
     {
-      baseURL: request.nextUrl.origin,
+      baseURL,
       headers: {
         cookie: request.headers.get("cookie") || "",
       },
