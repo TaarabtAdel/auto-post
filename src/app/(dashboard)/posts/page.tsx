@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { auth } from "@/lib/auth";
 import { headers } from "next/headers";
 import { db } from "@/lib/db";
@@ -6,6 +7,10 @@ import { facebookPage } from "@/db/schema/facebook-page";
 import { eq, desc, inArray } from "drizzle-orm";
 import Link from "next/link";
 import { PostFilters } from "@/components/post-filters";
+
+export const metadata: Metadata = {
+  title: "Bài viết",
+};
 
 export default async function PostsPage() {
   const session = await auth.api.getSession({

@@ -1,6 +1,16 @@
 # AutoPost
 
-Web app quản lý và tự động đăng bài viết lên Facebook Page. Hỗ trợ multi-user, mỗi user kết nối Page riêng.
+Quản lý và tự động đăng bài viết lên Facebook Page. Multi-user, AI generate nội dung, hẹn giờ đăng.
+
+## Screenshots
+
+| Login | Dashboard |
+|-------|-----------|
+| ![Login](docs/screenshots/login.png) | ![Dashboard](docs/screenshots/dashboard.png) |
+
+| Tạo bài viết | Đăng ký |
+|--------------|---------|
+| ![New Post](docs/screenshots/new-post.png) | ![Register](docs/screenshots/register.png) |
 
 ## Tính năng
 
@@ -10,34 +20,31 @@ Web app quản lý và tự động đăng bài viết lên Facebook Page. Hỗ 
 - **AI content** — 5 giọng văn: thân thiện, chuyên nghiệp, hài hước, truyền cảm hứng, kể chuyện
 - **Facebook integration** — OAuth connect, long-lived token, binary photo upload qua Graph API v21.0
 - **Dashboard** — Sidebar navigation, thống kê, quản lý bài viết theo trạng thái
-- **Security** — CSP/HSTS/X-Frame headers, rate limiting, file access control, encrypted tokens
+- **Security** — CSP/HSTS headers, rate limiting, file access control, encrypted tokens
 
 ## Tech Stack
 
 | Layer | Technology |
 |-------|-----------|
-| Framework | Next.js 16 (App Router, webpack mode) |
+| Framework | Next.js 16 (App Router) |
 | Database | SQLite WAL + Drizzle ORM |
-| Auth | Better Auth (email/password, session-based) |
+| Auth | Better Auth (email/password) |
 | AI | OpenAI-compatible API |
 | Facebook | Graph API v21.0, OAuth 2.0 |
-| Deploy | PM2 + Nginx + Certbot (VPS Ubuntu) |
+| Deploy | PM2 + Nginx + Certbot |
 
 ## Cài đặt
 
 ```bash
-# Clone
 git clone https://github.com/dt135/auto-post.git
 cd auto-post
-
-# Install dependencies
 npm install
 
-# Tạo file .env từ example
+# Tạo file .env
 cp .env.production.example .env
-# Điền các biến môi trường (xem bảng bên dưới)
+# Điền biến môi trường (xem bảng bên dưới)
 
-# Chạy database migration
+# Database migration
 npx drizzle-kit push
 
 # Dev server
@@ -72,17 +79,11 @@ npm run lint     # ESLint
 ```
 src/
 ├── app/
-│   ├── (auth)/           # Login, Register pages
+│   ├── (auth)/           # Login, Register
 │   ├── (dashboard)/      # Dashboard, Posts, Pages
-│   └── api/
-│       ├── ai/           # AI content generation
-│       ├── auth/         # Auth + Facebook OAuth
-│       ├── facebook-pages/ # Page management
-│       ├── import/       # Google Drive import
-│       ├── posts/        # CRUD + publish + scheduler
-│       └── uploads/      # File upload + serve (auth-gated)
+│   └── api/              # Auth, AI, Facebook, Posts, Uploads
 ├── components/           # UI components
-├── db/schema/            # Drizzle schema (user, session, post, facebook_page)
+├── db/schema/            # Drizzle schema
 └── lib/                  # Core logic (auth, ai, facebook, crypto, rate-limit, scheduler)
 ```
 
