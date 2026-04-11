@@ -32,6 +32,129 @@ function detectType(url: string): "doc" | "sheet" | "file" {
   return "file";
 }
 
+/** Supported media MIME types and their extensions */
+const MEDIA_MIME_MAP: Record<string, { ext: string; fileType: "image" | "video" }> = {
+  "image/jpeg": { ext: "jpg", fileType: "image" },
+  "image/png": { ext: "png", fileType: "image" },
+  "image/gif": { ext: "gif", fileType: "image" },
+  "image/webp": { ext: "webp", fileType: "image" },
+  "video/mp4": { ext: "mp4", fileType: "video" },
+  "video/quicktime": { ext: "mov", fileType: "video" },
+  "application/pdf": { ext: "pdf", fileType: "image" }, // treat PDF as image for storage
+};
+
+const MAX_MEDIA_SIZE = 100 * 1024 * 1024; // 100MB
+
+export interface DriveMediaResult {
+  buffer: Buffer;
+  mimeType: string;
+  fileType: "image" | "video";
+  ext: string;
+  size: number;
+}
+
+/**
+ * Download a media file (image/video/PDF) from Google Drive.
+ * File must be publicly shared ("Anyone with the link").
+ * Returns buffer + metadata for saving to disk.
+ */
+export async function fetchDriveMedia(fileId: string): Promise<DriveMediaResult> {
+  const downloadUrl = `https://drive.google.com/uc?export=download&id=${fileId}`;
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 60_000); // 60s for large files
+
+  try {
+    const res = await fetch(downloadUrl, {
+      signal: controller.signal,
+      redirect: "follow",
+    });
+
+    if (!res.ok) {
+      if (res.status === 404) {
+        throw new Error("File không tồn tại hoặc đã bị xóa.");
+      }
+      if (res.status === 403 || res.status === 401) {
+        throw new Error(
+          "Không có quyền truy cập. Vui lòng đặt file ở chế độ 'Anyone with the link'."
+        );
+      }
+      throw new Error(`Không thể tải file (HTTP ${res.status}).`);
+    }
+
+    const contentType = (res.headers.get("content-type") || "").split(";")[0].trim();
+
+    // Check if response is HTML (Google login page or virus scan warning)
+    if (contentType === "text/html") {
+      const html = await res.text();
+      if (html.includes("ServiceLogin") || html.includes("accounts.google.com")) {
+        throw new Error(
+          "File yêu cầu đăng nhập. Vui lòng đặt file ở chế độ 'Anyone with the link'."
+        );
+      }
+      // Google virus scan confirm page for large files
+      if (html.includes("confirm=") || html.includes("download_warning")) {
+        // Extract confirm token and retry
+        const confirmMatch = html.match(/confirm=([a-zA-Z0-9_-]+)/);
+        if (confirmMatch) {
+          const confirmUrl = `https://drive.google.com/uc?export=download&id=${fileId}&confirm=${confirmMatch[1]}`;
+          const retryRes = await fetch(confirmUrl, {
+            signal: controller.signal,
+            redirect: "follow",
+          });
+          if (!retryRes.ok) {
+            throw new Error("Không thể tải file sau xác nhận virus scan.");
+          }
+          const retryType = (retryRes.headers.get("content-type") || "").split(";")[0].trim();
+          const mediaInfo = MEDIA_MIME_MAP[retryType];
+          if (!mediaInfo) {
+            throw new Error(`Loại file không hỗ trợ: ${retryType}. Hỗ trợ: ảnh (JPEG, PNG, GIF, WebP), video (MP4, MOV), PDF.`);
+          }
+          const arrayBuf = await retryRes.arrayBuffer();
+          if (arrayBuf.byteLength > MAX_MEDIA_SIZE) {
+            throw new Error("File quá lớn. Giới hạn 100MB.");
+          }
+          return {
+            buffer: Buffer.from(arrayBuf),
+            mimeType: retryType,
+            fileType: mediaInfo.fileType,
+            ext: mediaInfo.ext,
+            size: arrayBuf.byteLength,
+          };
+        }
+      }
+      throw new Error("Không thể tải file media. Google Drive trả về trang HTML thay vì file.");
+    }
+
+    const mediaInfo = MEDIA_MIME_MAP[contentType];
+    if (!mediaInfo) {
+      throw new Error(
+        `Loại file không hỗ trợ: ${contentType}. Hỗ trợ: ảnh (JPEG, PNG, GIF, WebP), video (MP4, MOV), PDF.`
+      );
+    }
+
+    const arrayBuf = await res.arrayBuffer();
+    if (arrayBuf.byteLength > MAX_MEDIA_SIZE) {
+      throw new Error("File quá lớn. Giới hạn 100MB.");
+    }
+
+    return {
+      buffer: Buffer.from(arrayBuf),
+      mimeType: contentType,
+      fileType: mediaInfo.fileType,
+      ext: mediaInfo.ext,
+      size: arrayBuf.byteLength,
+    };
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      throw new Error("Tải file timeout (60s). File quá lớn hoặc mạng chậm.");
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 /**
  * Fetch text content from a Google Drive public file.
  * - Google Docs → export as plain text
