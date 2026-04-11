@@ -270,11 +270,11 @@ export default function NewPostPage() {
         return;
       }
 
-      // Schedule it
+      // Schedule it — send with timezone info
       const scheduleRes = await fetch(`/api/posts/${createData.post.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ scheduledAt }),
+        body: JSON.stringify({ scheduledAt: new Date(scheduledAt).toISOString() }),
       });
 
       const scheduleData = await scheduleRes.json();
