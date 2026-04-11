@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { readFile, stat } from "fs/promises";
-import { join } from "path";
+import { join, resolve, normalize } from "path";
+import { auth } from "@/lib/auth";
+import { headers } from "next/headers";
 
 const MIME_TYPES: Record<string, string> = {
   jpg: "image/jpeg",
@@ -10,12 +12,14 @@ const MIME_TYPES: Record<string, string> = {
   webp: "image/webp",
   mp4: "video/mp4",
   mov: "video/quicktime",
+  pdf: "application/pdf",
 };
 
 type Params = { params: Promise<{ path: string[] }> };
 
 /**
  * GET /api/uploads/[...path] — serve uploaded files
+ * Auth required: user can only access their own files.
  */
 export async function GET(_request: NextRequest, { params }: Params) {
   const { path: pathSegments } = await params;
@@ -24,9 +28,29 @@ export async function GET(_request: NextRequest, { params }: Params) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
-  // Sanitize: prevent directory traversal
-  const safePath = pathSegments.join("/").replace(/\.\./g, "");
-  const filePath = join(process.cwd(), "uploads", safePath);
+  // Auth check
+  const session = await auth.api.getSession({
+    headers: await headers(),
+  });
+  if (!session) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  // Ownership check: first segment must be the user's ID
+  const requestedUserId = pathSegments[0];
+  if (requestedUserId !== session.user.id) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
+  // Path traversal protection: resolve and validate
+  const uploadsDir = resolve(process.cwd(), "uploads");
+  const requestedPath = normalize(pathSegments.join("/"));
+  const filePath = resolve(uploadsDir, requestedPath);
+
+  // Ensure resolved path is within uploads directory
+  if (!filePath.startsWith(uploadsDir)) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
 
   try {
     await stat(filePath);
@@ -34,7 +58,7 @@ export async function GET(_request: NextRequest, { params }: Params) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
-  const ext = safePath.split(".").pop()?.toLowerCase() || "";
+  const ext = filePath.split(".").pop()?.toLowerCase() || "";
   const contentType = MIME_TYPES[ext] || "application/octet-stream";
 
   const buffer = await readFile(filePath);
@@ -42,7 +66,7 @@ export async function GET(_request: NextRequest, { params }: Params) {
   return new NextResponse(buffer, {
     headers: {
       "Content-Type": contentType,
-      "Cache-Control": "public, max-age=31536000, immutable",
+      "Cache-Control": "private, max-age=3600",
     },
   });
 }

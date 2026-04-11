@@ -41,7 +41,17 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const fileId = parseDriveUrl(url.trim());
+  // Only allow Google Drive URLs
+  const trimmedUrl = url.trim();
+  if (!trimmedUrl.startsWith("https://docs.google.com/") && 
+      !trimmedUrl.startsWith("https://drive.google.com/")) {
+    return NextResponse.json(
+      { error: "Chỉ hỗ trợ URL từ Google Drive (docs.google.com hoặc drive.google.com)." },
+      { status: 400 }
+    );
+  }
+
+  const fileId = parseDriveUrl(trimmedUrl);
   if (!fileId) {
     return NextResponse.json(
       {

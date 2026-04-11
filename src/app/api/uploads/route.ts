@@ -4,6 +4,7 @@ import { headers } from "next/headers";
 import { writeFile, mkdir } from "fs/promises";
 import { join } from "path";
 import { randomBytes } from "crypto";
+import { uploadLimiter, checkRateLimit } from "@/lib/rate-limit";
 
 const ALLOWED_IMAGE_TYPES = [
   "image/jpeg",
@@ -40,6 +41,10 @@ export async function POST(request: NextRequest) {
   if (!session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+
+  // Rate limit: 20 uploads / min / user
+  const limited = checkRateLimit(uploadLimiter, session.user.id);
+  if (limited) return limited;
 
   let formData;
   try {
