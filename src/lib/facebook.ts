@@ -45,27 +45,66 @@ export async function exchangeCodeForToken(
   return data.access_token;
 }
 
+export interface LongLivedUserTokenResult {
+  accessToken: string;
+  expiresIn: number;
+  tokenType: string;
+}
+
 /**
  * Exchange short-lived user token for long-lived user token (~60 days).
  */
+export async function exchangeForLongLivedUserToken(
+  shortLivedToken: string
+): Promise<LongLivedUserTokenResult> {
+  if (!process.env.FACEBOOK_APP_ID || !process.env.FACEBOOK_APP_SECRET) {
+    throw new Error("Thiếu FACEBOOK_APP_ID hoặc FACEBOOK_APP_SECRET trong cấu hình.");
+  }
+
+  const params = new URLSearchParams({
+    grant_type: "fb_exchange_token",
+    client_id: process.env.FACEBOOK_APP_ID,
+    client_secret: process.env.FACEBOOK_APP_SECRET,
+    fb_exchange_token: shortLivedToken.trim(),
+  });
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT);
+
+  try {
+    const res = await fetch(`${FB_OAUTH_TOKEN}?${params.toString()}`, {
+      signal: controller.signal,
+    });
+    const data = await res.json();
+
+    if (data.error) {
+      throw new Error(data.error.message || "Không thể đổi sang long-lived token.");
+    }
+
+    if (!data.access_token) {
+      throw new Error("Facebook không trả về access_token.");
+    }
+
+    return {
+      accessToken: data.access_token as string,
+      expiresIn: typeof data.expires_in === "number" ? data.expires_in : 0,
+      tokenType: (data.token_type as string) || "bearer",
+    };
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      throw new Error("Kết nối tới Facebook timeout. Vui lòng thử lại.");
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 export async function exchangeForLongLivedToken(
   shortLivedToken: string
 ): Promise<string> {
-  const params = new URLSearchParams({
-    grant_type: "fb_exchange_token",
-    client_id: process.env.FACEBOOK_APP_ID || "",
-    client_secret: process.env.FACEBOOK_APP_SECRET || "",
-    fb_exchange_token: shortLivedToken,
-  });
-
-  const res = await fetch(`${FB_OAUTH_TOKEN}?${params.toString()}`);
-  const data = await res.json();
-
-  if (data.error) {
-    throw new Error(data.error.message || "Không thể đổi sang long-lived token.");
-  }
-
-  return data.access_token;
+  const result = await exchangeForLongLivedUserToken(shortLivedToken);
+  return result.accessToken;
 }
 
 export interface PageWithToken {

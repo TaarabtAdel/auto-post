@@ -12,9 +12,19 @@ interface SidebarProps {
 const navItems = [
   { href: "/dashboard", label: "Dashboard", icon: "📊" },
   { href: "/pages", label: "Facebook Pages", icon: "📄" },
+  { href: "/pages/renew-token", label: "Gia hạn token", icon: "🔑" },
   { href: "/posts", label: "Bài viết", icon: "📝" },
   { href: "/posts/new", label: "Tạo bài mới", icon: "✨" },
 ];
+
+function isNavActive(pathname: string, href: string): boolean {
+  if (pathname === href) return true;
+  if (href === "/pages" || href === "/pages/renew-token") return false;
+  if (href === "/posts") {
+    return pathname.startsWith("/posts/") && pathname !== "/posts/new";
+  }
+  return href !== "/dashboard" && pathname.startsWith(`${href}/`);
+}
 
 export function Sidebar({ userName }: SidebarProps) {
   const pathname = usePathname();
@@ -58,9 +68,7 @@ export function Sidebar({ userName }: SidebarProps) {
         {/* Navigation */}
         <nav className="flex-1 py-4 px-3 space-y-1 overflow-y-auto">
           {navItems.map((item) => {
-            const isActive =
-              pathname === item.href ||
-              (item.href !== "/dashboard" && pathname.startsWith(item.href));
+            const isActive = isNavActive(pathname, item.href);
             return (
               <Link
                 key={item.href}

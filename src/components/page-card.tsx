@@ -23,6 +23,10 @@ export function PageCard({
   const [newToken, setNewToken] = useState("");
   const [updating, setUpdating] = useState(false);
   const [error, setError] = useState("");
+  const [showToken, setShowToken] = useState(false);
+  const [currentToken, setCurrentToken] = useState<string | null>(null);
+  const [loadingToken, setLoadingToken] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   async function handleDelete() {
     if (!confirm(`Xóa kết nối với "${pageName}"?`)) return;
@@ -39,6 +43,41 @@ export function PageCard({
       setError("Không thể xóa. Thử lại.");
     } finally {
       setDeleting(false);
+    }
+  }
+
+  async function handleShowToken() {
+    if (showToken) {
+      setShowToken(false);
+      return;
+    }
+
+    setError("");
+    setLoadingToken(true);
+    try {
+      const res = await fetch(`/api/facebook-pages/${id}`);
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error || "Không thể lấy token.");
+        return;
+      }
+      setCurrentToken(data.accessToken);
+      setShowToken(true);
+    } catch {
+      setError("Lỗi kết nối. Thử lại.");
+    } finally {
+      setLoadingToken(false);
+    }
+  }
+
+  async function handleCopyToken() {
+    if (!currentToken) return;
+    try {
+      await navigator.clipboard.writeText(currentToken);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      setError("Không copy được — hãy chọn và copy thủ công.");
     }
   }
 
@@ -104,7 +143,19 @@ export function PageCard({
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap justify-end">
+          <button
+            type="button"
+            onClick={handleShowToken}
+            disabled={loadingToken}
+            className="text-sm text-gray-700 hover:text-gray-900 transition-colors disabled:opacity-50"
+          >
+            {loadingToken
+              ? "Đang tải..."
+              : showToken
+                ? "Ẩn token"
+                : "Hiện token"}
+          </button>
           <button
             onClick={() => setShowUpdateForm(!showUpdateForm)}
             className="text-sm text-blue-600 hover:text-blue-800 transition-colors"
@@ -124,6 +175,29 @@ export function PageCard({
       {error && (
         <div className="mt-3 bg-red-50 text-red-600 px-3 py-2 rounded-md text-sm">
           {error}
+        </div>
+      )}
+
+      {showToken && currentToken && (
+        <div className="mt-4 space-y-2">
+          <p className="text-xs text-gray-500">
+            Page access token đang lưu trong AutoPost — không chia sẻ công khai.
+          </p>
+          <div className="flex gap-2 items-start">
+            <textarea
+              readOnly
+              rows={3}
+              value={currentToken}
+              className="flex-1 px-3 py-2 border border-gray-200 rounded-md text-xs font-mono bg-gray-50"
+            />
+            <button
+              type="button"
+              onClick={handleCopyToken}
+              className="shrink-0 text-sm text-blue-600 hover:underline"
+            >
+              {copied ? "Đã copy" : "Copy"}
+            </button>
+          </div>
         </div>
       )}
 
