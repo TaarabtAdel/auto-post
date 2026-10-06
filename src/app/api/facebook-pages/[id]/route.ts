@@ -5,9 +5,50 @@ import { db } from "@/lib/db";
 import { facebookPage } from "@/db/schema/facebook-page";
 import { eq, and } from "drizzle-orm";
 import { verifyPageToken } from "@/lib/facebook";
-import { encrypt } from "@/lib/crypto";
+import { decrypt, encrypt } from "@/lib/crypto";
 
 type Params = { params: Promise<{ id: string }> };
+
+/**
+ * GET /api/facebook-pages/[id] — decrypt and return stored Page access token (owner only)
+ */
+export async function GET(_request: NextRequest, { params }: Params) {
+  const session = await auth.api.getSession({
+    headers: await headers(),
+  });
+  if (!session) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const { id } = await params;
+
+  const rows = await db
+    .select({
+      encryptedToken: facebookPage.encryptedToken,
+      pageName: facebookPage.pageName,
+    })
+    .from(facebookPage)
+    .where(
+      and(eq(facebookPage.id, id), eq(facebookPage.userId, session.user.id))
+    );
+
+  if (rows.length === 0) {
+    return NextResponse.json({ error: "Page không tồn tại." }, { status: 404 });
+  }
+
+  try {
+    const accessToken = decrypt(rows[0].encryptedToken);
+    return NextResponse.json({
+      accessToken,
+      pageName: rows[0].pageName,
+    });
+  } catch {
+    return NextResponse.json(
+      { error: "Không thể đọc token đã lưu." },
+      { status: 500 }
+    );
+  }
+}
 
 /**
  * DELETE /api/facebook-pages/[id] — remove a connected page
