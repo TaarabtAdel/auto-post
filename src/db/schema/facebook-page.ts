@@ -1,6 +1,7 @@
 import { sql } from "drizzle-orm";
 import { sqliteTable, text, integer, uniqueIndex } from "drizzle-orm/sqlite-core";
 import { user } from "./auth";
+import { workspaceApp } from "./workspace-app";
 
 export const facebookPage = sqliteTable(
   "facebook_page",
@@ -9,6 +10,9 @@ export const facebookPage = sqliteTable(
     userId: text("user_id")
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
+    workspaceAppId: text("workspace_app_id").references(() => workspaceApp.id, {
+      onDelete: "set null",
+    }),
     pageId: text("page_id").notNull(),
     pageName: text("page_name").notNull(),
     pageAvatar: text("page_avatar"),

@@ -11,6 +11,7 @@ interface SidebarProps {
 
 const navItems = [
   { href: "/dashboard", label: "Dashboard", icon: "📊" },
+  { href: "/apps", label: "Facebook Apps", icon: "📱" },
   { href: "/pages", label: "Facebook Pages", icon: "📄" },
   { href: "/pages/renew-token", label: "Gia hạn token", icon: "🔑" },
   { href: "/posts", label: "Bài viết", icon: "📝" },
@@ -19,7 +20,9 @@ const navItems = [
 
 function isNavActive(pathname: string, href: string): boolean {
   if (pathname === href) return true;
-  if (href === "/pages" || href === "/pages/renew-token") return false;
+  if (href === "/pages" || href === "/pages/renew-token" || href === "/apps") {
+    return pathname === href;
+  }
   if (href === "/posts") {
     return pathname.startsWith("/posts/") && pathname !== "/posts/new";
   }

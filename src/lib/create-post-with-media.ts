@@ -1,0 +1,51 @@
+import { db } from "@/lib/db";
+import { post, postMedia } from "@/db/schema/post";
+import { randomBytes } from "crypto";
+
+export interface MediaInput {
+  filePath: string;
+  fileName: string;
+  fileSize: number;
+  mimeType: string;
+  fileType: string;
+}
+
+export async function createPostWithMedia(params: {
+  userId: string;
+  content: string;
+  firstComment?: string | null;
+  facebookPageId: string;
+  media: MediaInput[];
+  batchId: string;
+  scheduledAt: Date;
+  status: "queued" | "draft";
+}) {
+  const postId = randomBytes(16).toString("hex");
+
+  await db.insert(post).values({
+    id: postId,
+    userId: params.userId,
+    facebookPageId: params.facebookPageId,
+    content: params.content,
+    firstComment: params.firstComment?.trim() || null,
+    status: params.status,
+    batchId: params.batchId,
+    scheduledAt: params.scheduledAt,
+  });
+
+  for (let i = 0; i < params.media.length; i++) {
+    const m = params.media[i];
+    await db.insert(postMedia).values({
+      id: randomBytes(16).toString("hex"),
+      postId,
+      filePath: m.filePath,
+      fileType: m.fileType,
+      fileName: m.fileName,
+      fileSize: m.fileSize,
+      mimeType: m.mimeType,
+      sortOrder: i,
+    });
+  }
+
+  return postId;
+}

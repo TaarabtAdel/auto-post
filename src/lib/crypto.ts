@@ -57,3 +57,30 @@ export function decrypt(encryptedData: string): string {
 
   return decrypted;
 }
+
+export type DecryptPageTokenResult =
+  | { ok: true; value: string }
+  | { ok: false; code: "format" | "wrong_key"; message: string };
+
+/** Giải mã page token; phân biệt lỗi format vs ENCRYPTION_KEY không khớp. */
+export function decryptPageToken(encryptedData: string): DecryptPageTokenResult {
+  const parts = encryptedData.split(":");
+  if (parts.length !== 3) {
+    return {
+      ok: false,
+      code: "format",
+      message: "Dữ liệu token trong DB không đúng định dạng mã hóa.",
+    };
+  }
+
+  try {
+    return { ok: true, value: decrypt(encryptedData) };
+  } catch {
+    return {
+      ok: false,
+      code: "wrong_key",
+      message:
+        "Token Page được mã hóa bằng ENCRYPTION_KEY cũ (thường do đã tạo lại .env hoặc Docker dùng key khác với lúc lưu Page). Dán Page Access Token mới trong form sửa Page, hoặc kết nối lại Facebook để làm mới token.",
+    };
+  }
+}

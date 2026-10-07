@@ -10,22 +10,32 @@ interface MediaFile {
   mimeType: string;
   fileType: string;
   url: string;
-  // For local preview before upload
-  previewUrl?: string;
 }
 
 interface FacebookPageOption {
   id: string;
   pageName: string;
+  pageAvatar: string | null;
   tokenStatus: string;
+  workspaceAppId: string | null;
+}
+
+interface AppOption {
+  id: string;
+  name: string;
 }
 
 export default function NewPostPage() {
   const router = useRouter();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [content, setContent] = useState("");
-  const [facebookPageId, setFacebookPageId] = useState("");
-  const [pages, setPages] = useState<FacebookPageOption[]>([]);
+  const [firstComment, setFirstComment] = useState("");
+  const [apps, setApps] = useState<AppOption[]>([]);
+  const [workspaceAppId, setWorkspaceAppId] = useState("");
+  const [allPages, setAllPages] = useState<FacebookPageOption[]>([]);
+  const [selectedPageIds, setSelectedPageIds] = useState<Set<string>>(
+    () => new Set()
+  );
   const [media, setMedia] = useState<MediaFile[]>([]);
   const [uploading, setUploading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -35,22 +45,55 @@ export default function NewPostPage() {
   const [driveImportType, setDriveImportType] = useState<"text" | "media">("text");
   const [scheduledAt, setScheduledAt] = useState("");
   const [scheduling, setScheduling] = useState(false);
-  const [aiUrl, setAiUrl] = useState("");
-  const [aiTopic, setAiTopic] = useState("");
-  const [aiTone, setAiTone] = useState("friendly");
-  const [aiGenerating, setAiGenerating] = useState(false);
-  const [aiMode, setAiMode] = useState<"url" | "topic">("topic");
 
   useEffect(() => {
-    fetch("/api/facebook-pages")
-      .then((r) => r.json())
-      .then((data) => {
-        if (data.pages) {
-          setPages(data.pages.filter((p: FacebookPageOption) => p.tokenStatus === "active"));
+    Promise.all([
+      fetch("/api/workspace-apps").then((r) => r.json()),
+      fetch("/api/facebook-pages").then((r) => r.json()),
+    ])
+      .then(([appsData, pagesData]) => {
+        if (appsData.apps?.length) {
+          setApps(appsData.apps);
+          setWorkspaceAppId(appsData.apps[0].id);
+        }
+        if (pagesData.pages) {
+          setAllPages(pagesData.pages);
         }
       })
       .catch(() => {});
   }, []);
+
+  const appPages = allPages.filter(
+    (p) =>
+      p.tokenStatus === "active" &&
+      p.workspaceAppId === workspaceAppId
+  );
+
+  useEffect(() => {
+    setSelectedPageIds(new Set(appPages.map((p) => p.id)));
+  }, [workspaceAppId, allPages]);
+
+  const allSelected =
+    appPages.length > 0 && selectedPageIds.size === appPages.length;
+  const someSelected =
+    selectedPageIds.size > 0 && selectedPageIds.size < appPages.length;
+
+  function togglePage(id: string) {
+    setSelectedPageIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleSelectAll() {
+    if (allSelected) {
+      setSelectedPageIds(new Set());
+    } else {
+      setSelectedPageIds(new Set(appPages.map((p) => p.id)));
+    }
+  }
 
   async function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const files = e.target.files;
@@ -93,7 +136,6 @@ export default function NewPostPage() {
     }
 
     setUploading(false);
-    // Reset input
     if (fileInputRef.current) fileInputRef.current.value = "";
   }
 
@@ -121,12 +163,10 @@ export default function NewPostPage() {
 
       if (!res.ok) {
         setError(data.error || "Không thể import nội dung.");
-        setImporting(false);
         return;
       }
 
       if (driveImportType === "media") {
-        // Add to media list
         setMedia((prev) => [
           ...prev,
           {
@@ -138,13 +178,10 @@ export default function NewPostPage() {
             url: data.url,
           },
         ]);
+      } else if (content.trim()) {
+        setContent((prev) => prev + "\n\n" + data.content);
       } else {
-        // Append or replace content
-        if (content.trim()) {
-          setContent((prev) => prev + "\n\n" + data.content);
-        } else {
-          setContent(data.content);
-        }
+        setContent(data.content);
       }
       setDriveUrl("");
     } catch {
@@ -154,66 +191,14 @@ export default function NewPostPage() {
     }
   }
 
-  async function handleAiGenerate() {
-    const input = aiMode === "url" ? aiUrl.trim() : aiTopic.trim();
-    if (!input) {
-      setError(aiMode === "url" ? "Vui lòng nhập URL." : "Vui lòng nhập chủ đề.");
-      return;
-    }
-
-    setAiGenerating(true);
-    setError("");
-
-    try {
-      const body: Record<string, string> = { tone: aiTone };
-      if (aiMode === "url") body.url = input;
-      else body.topic = input;
-
-      const res = await fetch("/api/ai/generate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-
-      // Check response is JSON
-      const contentType = res.headers.get("content-type") || "";
-      if (!contentType.includes("application/json")) {
-        setError("Lỗi server. Vui lòng thử lại.");
-        return;
-      }
-
-      const data = await res.json();
-
-      if (!res.ok) {
-        setError(data.error || "Không thể tạo nội dung AI.");
-        return;
-      }
-
-      if (content.trim()) {
-        setContent((prev) => prev + "\n\n" + data.content);
-      } else {
-        setContent(data.content);
-      }
-
-      // Add extracted images to media
-      if (data.images && Array.isArray(data.images)) {
-        setMedia((prev) => [
-          ...prev,
-          ...data.images.map((img: { filePath: string; fileName: string; fileSize: number; mimeType: string; fileType: string; url: string }) => ({
-            filePath: img.filePath,
-            fileName: img.fileName,
-            fileSize: img.fileSize,
-            mimeType: img.mimeType,
-            fileType: img.fileType,
-            url: img.url,
-          })),
-        ]);
-      }
-    } catch {
-      setError("Lỗi kết nối AI. Vui lòng thử lại.");
-    } finally {
-      setAiGenerating(false);
-    }
+  function mediaPayload() {
+    return media.map((m) => ({
+      filePath: m.filePath,
+      fileName: m.fileName,
+      fileSize: m.fileSize,
+      mimeType: m.mimeType,
+      fileType: m.fileType,
+    }));
   }
 
   async function handleSaveDraft() {
@@ -231,14 +216,12 @@ export default function NewPostPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           content: content.trim(),
-          facebookPageId: facebookPageId || undefined,
-          media: media.map((m) => ({
-            filePath: m.filePath,
-            fileName: m.fileName,
-            fileSize: m.fileSize,
-            mimeType: m.mimeType,
-            fileType: m.fileType,
-          })),
+          firstComment: firstComment.trim() || undefined,
+          facebookPageId:
+            selectedPageIds.size === 1
+              ? [...selectedPageIds][0]
+              : undefined,
+          media: mediaPayload(),
         }),
       });
 
@@ -246,7 +229,6 @@ export default function NewPostPage() {
 
       if (!res.ok) {
         setError(data.error || "Không thể lưu bài viết.");
-        setSaving(false);
         return;
       }
 
@@ -259,134 +241,72 @@ export default function NewPostPage() {
     }
   }
 
-  async function handleSchedule() {
+  async function submitToQueue(scheduledAtIso: string) {
     if (!content.trim()) {
       setError("Vui lòng nhập nội dung bài viết.");
       return;
     }
-    if (!facebookPageId) {
-      setError("Vui lòng chọn Facebook Page.");
+    if (!workspaceAppId) {
+      setError("Chọn Facebook App.");
       return;
     }
+    if (selectedPageIds.size === 0) {
+      setError("Chọn ít nhất một Fanpage.");
+      return;
+    }
+
+    setScheduling(true);
+    setError("");
+
+    try {
+      const res = await fetch("/api/posts/schedule-batch", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          content: content.trim(),
+          firstComment: firstComment.trim() || undefined,
+          media: mediaPayload(),
+          scheduledAt: scheduledAtIso,
+          facebookPageIds: [...selectedPageIds],
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error || "Không thể thêm vào hàng đợi.");
+        return;
+      }
+
+      router.push("/posts");
+      router.refresh();
+    } catch {
+      setError("Lỗi kết nối. Vui lòng thử lại.");
+    } finally {
+      setScheduling(false);
+    }
+  }
+
+  async function handleSchedule() {
     if (!scheduledAt) {
       setError("Vui lòng chọn thời gian đăng.");
       return;
     }
-
-    setScheduling(true);
-    setError("");
-
-    try {
-      // Create draft first
-      const createRes = await fetch("/api/posts", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          content: content.trim(),
-          facebookPageId,
-          media: media.map((m) => ({
-            filePath: m.filePath,
-            fileName: m.fileName,
-            fileSize: m.fileSize,
-            mimeType: m.mimeType,
-            fileType: m.fileType,
-          })),
-        }),
-      });
-
-      const createData = await createRes.json();
-      if (!createRes.ok) {
-        setError(createData.error || "Không thể tạo bài viết.");
-        setScheduling(false);
-        return;
-      }
-
-      // Schedule it — send with timezone info
-      const scheduleRes = await fetch(`/api/posts/${createData.post.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ scheduledAt: new Date(scheduledAt).toISOString() }),
-      });
-
-      const scheduleData = await scheduleRes.json();
-      if (!scheduleRes.ok) {
-        setError(scheduleData.error || "Không thể hẹn giờ.");
-        setScheduling(false);
-        return;
-      }
-
-      router.push("/posts");
-      router.refresh();
-    } catch {
-      setError("Lỗi kết nối. Vui lòng thử lại.");
-    } finally {
-      setScheduling(false);
-    }
+    await submitToQueue(new Date(scheduledAt).toISOString());
   }
 
   async function handlePostNow() {
-    if (!content.trim()) {
-      setError("Vui lòng nhập nội dung bài viết.");
-      return;
-    }
-    if (!facebookPageId) {
-      setError("Vui lòng chọn Facebook Page.");
-      return;
-    }
-
-    setScheduling(true);
-    setError("");
-
-    try {
-      // Create draft
-      const createRes = await fetch("/api/posts", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          content: content.trim(),
-          facebookPageId,
-          media: media.map((m) => ({
-            filePath: m.filePath,
-            fileName: m.fileName,
-            fileSize: m.fileSize,
-            mimeType: m.mimeType,
-            fileType: m.fileType,
-          })),
-        }),
-      });
-
-      const createData = await createRes.json();
-      if (!createRes.ok) {
-        setError(createData.error || "Không thể tạo bài viết.");
-        setScheduling(false);
-        return;
-      }
-
-      // Publish immediately via publish endpoint
-      const publishRes = await fetch(`/api/posts/${createData.post.id}/publish`, {
-        method: "POST",
-      });
-
-      const publishData = await publishRes.json();
-      if (!publishRes.ok) {
-        setError(publishData.error || "Không thể đăng bài lên Facebook.");
-        setScheduling(false);
-        return;
-      }
-
-      router.push("/posts");
-      router.refresh();
-    } catch {
-      setError("Lỗi kết nối. Vui lòng thử lại.");
-    } finally {
-      setScheduling(false);
-    }
+    await submitToQueue(new Date().toISOString());
   }
+
+  const canPublish = apps.length > 0 && selectedPageIds.size > 0;
 
   return (
     <div>
       <div className="mb-8">
         <h2 className="text-2xl font-bold text-gray-900">Tạo bài viết mới</h2>
+        <p className="text-sm text-gray-500 mt-1">
+          Hàng đợi bắt đầu từ &quot;Hẹn giờ đăng&quot;; cron chạy mỗi phút, đăng lần lượt từng Page.
+        </p>
       </div>
 
       {error && (
@@ -396,226 +316,200 @@ export default function NewPostPage() {
       )}
 
       <div className="space-y-6">
-        {/* Facebook Page selector */}
-        <div className="bg-white rounded-lg border border-gray-200 p-6">
-          <label className="block text-sm font-medium text-gray-700 mb-2">
-            Facebook Page
+        <div className="bg-white rounded-lg border border-gray-200 p-6 space-y-4">
+          <label className="block text-sm font-medium text-gray-700">
+            Đích đăng
           </label>
-          {pages.length > 0 ? (
-            <select
-              value={facebookPageId}
-              onChange={(e) => setFacebookPageId(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
-            >
-              <option value="">Chọn Page (tùy chọn)</option>
-              {pages.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.pageName}
-                </option>
-              ))}
-            </select>
-          ) : (
-            <p className="text-sm text-gray-500">
-              Chưa kết nối Page nào.{" "}
-              <a href="/pages" className="text-blue-600 hover:underline">
-                Kết nối Page
-              </a>
+
+          {apps.length === 0 ? (
+            <p className="text-sm text-amber-800">
+              Chưa có Facebook App.{" "}
+              <a href="/apps" className="text-blue-600 hover:underline">
+                Tạo App
+              </a>{" "}
+              trước.
             </p>
-          )}
-        </div>
-
-        {/* AI Content Generation */}
-        <div className="bg-white rounded-lg border border-purple-200 p-6">
-          <label className="block text-sm font-medium text-purple-700 mb-3">
-            ✨ AI Tạo nội dung
-          </label>
-
-          {/* Mode toggle */}
-          <div className="flex gap-2 mb-3">
-            <button
-              type="button"
-              onClick={() => setAiMode("topic")}
-              className={`px-3 py-1.5 rounded-md text-sm transition-colors ${
-                aiMode === "topic"
-                  ? "bg-purple-600 text-white"
-                  : "bg-gray-100 text-gray-600 hover:bg-gray-200"
-              }`}
-            >
-              📝 Theo chủ đề
-            </button>
-            <button
-              type="button"
-              onClick={() => setAiMode("url")}
-              className={`px-3 py-1.5 rounded-md text-sm transition-colors ${
-                aiMode === "url"
-                  ? "bg-purple-600 text-white"
-                  : "bg-gray-100 text-gray-600 hover:bg-gray-200"
-              }`}
-            >
-              🔗 Từ URL
-            </button>
-          </div>
-
-          {/* Input */}
-          {aiMode === "topic" ? (
-            <input
-              type="text"
-              value={aiTopic}
-              onChange={(e) => setAiTopic(e.target.value)}
-              placeholder="Nhập chủ đề (VD: kinh nghiệm chăm sóc da mùa hè)"
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500 text-sm mb-3"
-            />
           ) : (
-            <input
-              type="url"
-              value={aiUrl}
-              onChange={(e) => setAiUrl(e.target.value)}
-              placeholder="Paste URL bài viết (VD: https://example.com/bai-viet)"
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500 text-sm mb-3"
-            />
-          )}
+            <>
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">
+                  Facebook App
+                </label>
+                <select
+                  value={workspaceAppId}
+                  onChange={(e) => setWorkspaceAppId(e.target.value)}
+                  className="w-full max-w-md px-3 py-2 border border-gray-300 rounded-md text-sm"
+                >
+                  {apps.map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {a.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
 
-          {/* Tone selector + Generate button */}
-          <div className="flex gap-2 items-center">
-            <select
-              value={aiTone}
-              onChange={(e) => setAiTone(e.target.value)}
-              className="px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
-            >
-              <option value="friendly">🤝 Thân thiện</option>
-              <option value="professional">💼 Chuyên nghiệp</option>
-              <option value="humorous">😄 Hài hước</option>
-              <option value="inspiring">🌟 Truyền cảm hứng</option>
-              <option value="storytelling">📖 Kể chuyện</option>
-            </select>
-            <button
-              type="button"
-              onClick={handleAiGenerate}
-              disabled={aiGenerating}
-              className="bg-purple-600 text-white py-2 px-4 rounded-md hover:bg-purple-700 disabled:opacity-50 text-sm transition-colors whitespace-nowrap"
-            >
-              {aiGenerating ? "⏳ Đang tạo..." : "✨ Tạo nội dung"}
-            </button>
-          </div>
-          <p className="mt-2 text-xs text-gray-500">
-            AI sẽ viết bài Facebook dựa trên chủ đề hoặc nội dung URL. Bạn có thể chỉnh sửa trước khi đăng.
-          </p>
+              {appPages.length === 0 ? (
+                <p className="text-sm text-gray-500">
+                  App này chưa có Page active.{" "}
+                  <a href="/pages" className="text-blue-600 hover:underline">
+                    Kết nối Page
+                  </a>
+                </p>
+              ) : (
+                <div className="border border-gray-100 rounded-lg divide-y divide-gray-100">
+                  <label className="flex items-center gap-3 px-4 py-3 bg-gray-50 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={allSelected}
+                      ref={(el) => {
+                        if (el) el.indeterminate = someSelected;
+                      }}
+                      onChange={toggleSelectAll}
+                      className="rounded border-gray-300"
+                    />
+                    <span className="text-sm font-medium text-gray-800">
+                      Chọn tất cả ({appPages.length} Fanpage)
+                    </span>
+                  </label>
+                  {appPages.map((p) => (
+                    <label
+                      key={p.id}
+                      className="flex items-center gap-3 px-4 py-3 cursor-pointer hover:bg-gray-50/80"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={selectedPageIds.has(p.id)}
+                        onChange={() => togglePage(p.id)}
+                        className="rounded border-gray-300"
+                      />
+                      {p.pageAvatar ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={p.pageAvatar}
+                          alt=""
+                          className="w-8 h-8 rounded-full"
+                        />
+                      ) : (
+                        <div className="w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center text-xs font-medium">
+                          {p.pageName.charAt(0)}
+                        </div>
+                      )}
+                      <span className="text-sm text-gray-900">{p.pageName}</span>
+                    </label>
+                  ))}
+                </div>
+              )}
+              <p className="text-xs text-gray-500">
+                Đã chọn {selectedPageIds.size} / {appPages.length} Fanpage trong
+                App này.
+              </p>
+            </>
+          )}
         </div>
 
-        {/* Google Drive import */}
         <div className="bg-white rounded-lg border border-gray-200 p-6">
           <label className="block text-sm font-medium text-gray-700 mb-2">
             Import từ Google Drive
           </label>
-
-          {/* Import type toggle */}
           <div className="flex gap-2 mb-3">
             <button
               type="button"
               onClick={() => setDriveImportType("text")}
-              className={`px-3 py-1.5 rounded-md text-sm transition-colors ${
+              className={`px-3 py-1.5 rounded-md text-sm ${
                 driveImportType === "text"
                   ? "bg-green-600 text-white"
-                  : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                  : "bg-gray-100 text-gray-600"
               }`}
             >
-              📝 Nội dung text
+              Nội dung text
             </button>
             <button
               type="button"
               onClick={() => setDriveImportType("media")}
-              className={`px-3 py-1.5 rounded-md text-sm transition-colors ${
+              className={`px-3 py-1.5 rounded-md text-sm ${
                 driveImportType === "media"
                   ? "bg-green-600 text-white"
-                  : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                  : "bg-gray-100 text-gray-600"
               }`}
             >
-              🖼 Ảnh / Video / PDF
+              Ảnh / Video
             </button>
           </div>
-
           <div className="flex gap-2">
             <input
               type="url"
               value={driveUrl}
               onChange={(e) => setDriveUrl(e.target.value)}
-              placeholder={
-                driveImportType === "text"
-                  ? "Paste link Google Docs / Sheets"
-                  : "Paste link Google Drive (ảnh, video, PDF)"
-              }
-              className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+              className="flex-1 px-3 py-2 border border-gray-300 rounded-md text-sm"
+              placeholder="Link Google Docs / Drive"
             />
             <button
+              type="button"
               onClick={handleImportDrive}
               disabled={importing || !driveUrl.trim()}
-              className="bg-green-600 text-white py-2 px-4 rounded-md hover:bg-green-700 disabled:opacity-50 text-sm transition-colors whitespace-nowrap"
+              className="bg-green-600 text-white py-2 px-4 rounded-md text-sm disabled:opacity-50"
             >
-              {importing ? "Đang import..." : "📥 Import"}
+              {importing ? "..." : "Import"}
             </button>
           </div>
-          <p className="mt-1 text-xs text-gray-500">
-            {driveImportType === "text"
-              ? "Hỗ trợ: Google Docs, Google Sheets, Google Drive text files (phải ở chế độ public)."
-              : "Hỗ trợ: ảnh (JPEG, PNG, GIF, WebP), video (MP4, MOV), PDF. File phải ở chế độ 'Bất kỳ ai có đường liên kết'."}
-          </p>
         </div>
 
-        {/* Content editor */}
-        <div className="bg-white rounded-lg border border-gray-200 p-6">
-          <label className="block text-sm font-medium text-gray-700 mb-2">
-            Nội dung bài viết
-          </label>
-          <textarea
-            value={content}
-            onChange={(e) => setContent(e.target.value)}
-            rows={8}
-            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm resize-y"
-            placeholder="Viết nội dung bài đăng Facebook..."
-          />
-          <p className="mt-1 text-xs text-gray-400">
-            {content.length} ký tự
-          </p>
+        <div className="bg-white rounded-lg border border-gray-200 p-6 space-y-6">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Nội dung bài viết
+            </label>
+            <textarea
+              value={content}
+              onChange={(e) => setContent(e.target.value)}
+              rows={8}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm resize-y"
+              placeholder="Viết nội dung bài đăng Facebook..."
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Bình luận đầu tiên
+            </label>
+            <textarea
+              value={firstComment}
+              onChange={(e) => setFirstComment(e.target.value)}
+              rows={3}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm resize-y"
+              placeholder="Tùy chọn — sau khi đăng bài, hệ thống tự comment dưới bài (tên Page)."
+            />
+            <p className="mt-1 text-xs text-gray-500">
+              Để trống nếu không cần. Cần quyền{" "}
+              <code className="text-gray-600">pages_manage_engagement</code> — có thể
+              phải kết nối lại Page nếu token cũ thiếu quyền.
+            </p>
+          </div>
         </div>
 
-        {/* Media upload */}
         <div className="bg-white rounded-lg border border-gray-200 p-6">
           <label className="block text-sm font-medium text-gray-700 mb-2">
             Ảnh / Video
           </label>
-
           <div className="flex flex-wrap gap-3 mb-4">
             {media.map((m, i) => (
-              <div
-                key={i}
-                className="relative group border border-gray-200 rounded-lg overflow-hidden"
-              >
+              <div key={i} className="relative group border rounded-lg overflow-hidden">
                 {m.fileType === "image" ? (
-                  <img
-                    src={m.url}
-                    alt={m.fileName}
-                    className="w-24 h-24 object-cover"
-                  />
+                  <img src={m.url} alt={m.fileName} className="w-24 h-24 object-cover" />
                 ) : (
-                  <div className="w-24 h-24 bg-gray-100 flex items-center justify-center">
-                    <div className="text-center">
-                      <span className="text-2xl">🎬</span>
-                      <p className="text-xs text-gray-500 truncate w-20 px-1">
-                        {m.fileName}
-                      </p>
-                    </div>
+                  <div className="w-24 h-24 bg-gray-100 flex items-center justify-center text-2xl">
+                    🎬
                   </div>
                 )}
                 <button
+                  type="button"
                   onClick={() => removeMedia(i)}
-                  className="absolute top-1 right-1 bg-red-500 text-white rounded-full w-5 h-5 text-xs flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                  className="absolute top-1 right-1 bg-red-500 text-white rounded-full w-5 h-5 text-xs"
                 >
                   ×
                 </button>
               </div>
             ))}
           </div>
-
           <input
             ref={fileInputRef}
             type="file"
@@ -623,18 +517,17 @@ export default function NewPostPage() {
             multiple
             onChange={handleFileUpload}
             className="hidden"
-            id="media-upload"
           />
           <button
+            type="button"
             onClick={() => fileInputRef.current?.click()}
             disabled={uploading}
-            className="border border-gray-300 text-gray-700 py-2 px-4 rounded-md hover:bg-gray-50 disabled:opacity-50 text-sm transition-colors"
+            className="border border-gray-300 text-gray-700 py-2 px-4 rounded-md text-sm disabled:opacity-50"
           >
-            {uploading ? "Đang tải lên..." : "📎 Thêm ảnh/video"}
+            {uploading ? "Đang tải..." : "Thêm ảnh/video"}
           </button>
         </div>
 
-        {/* Schedule */}
         <div className="bg-white rounded-lg border border-gray-200 p-6">
           <label className="block text-sm font-medium text-gray-700 mb-2">
             Hẹn giờ đăng
@@ -644,39 +537,42 @@ export default function NewPostPage() {
             value={scheduledAt}
             onChange={(e) => setScheduledAt(e.target.value)}
             min={new Date().toISOString().slice(0, 16)}
-            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+            className="w-full max-w-md px-3 py-2 border border-gray-300 rounded-md text-sm"
           />
           <p className="mt-1 text-xs text-gray-500">
-            Để trống nếu chỉ muốn lưu nháp.
+            Queue chỉ chạy từ thời điểm này. Mỗi Page trong batch cách nhau ~1 phút (cron).
           </p>
         </div>
 
-        {/* Actions */}
         <div className="flex gap-3 flex-wrap">
           <button
+            type="button"
             onClick={handleSaveDraft}
             disabled={saving || scheduling}
-            className="bg-gray-600 text-white py-2 px-6 rounded-md hover:bg-gray-700 disabled:opacity-50 text-sm transition-colors"
+            className="bg-gray-600 text-white py-2 px-6 rounded-md text-sm disabled:opacity-50"
           >
-            {saving ? "Đang lưu..." : "💾 Lưu nháp"}
+            {saving ? "Đang lưu..." : "Lưu nháp"}
           </button>
           <button
+            type="button"
             onClick={handleSchedule}
-            disabled={saving || scheduling || !scheduledAt || !facebookPageId}
-            className="bg-blue-600 text-white py-2 px-6 rounded-md hover:bg-blue-700 disabled:opacity-50 text-sm transition-colors"
+            disabled={saving || scheduling || !scheduledAt || !canPublish}
+            className="bg-blue-600 text-white py-2 px-6 rounded-md text-sm disabled:opacity-50"
           >
-            {scheduling ? "Đang xử lý..." : "🕐 Hẹn giờ đăng"}
+            {scheduling ? "Đang xử lý..." : "Hẹn giờ đăng (queue)"}
           </button>
           <button
+            type="button"
             onClick={handlePostNow}
-            disabled={saving || scheduling || !facebookPageId}
-            className="bg-green-600 text-white py-2 px-6 rounded-md hover:bg-green-700 disabled:opacity-50 text-sm transition-colors"
+            disabled={saving || scheduling || !canPublish}
+            className="bg-green-600 text-white py-2 px-6 rounded-md text-sm disabled:opacity-50"
           >
-            🚀 Đăng ngay
+            Đăng ngay (vào queue)
           </button>
           <button
+            type="button"
             onClick={() => router.push("/posts")}
-            className="border border-gray-300 text-gray-700 py-2 px-6 rounded-md hover:bg-gray-50 text-sm transition-colors"
+            className="border border-gray-300 text-gray-700 py-2 px-6 rounded-md text-sm"
           >
             Hủy
           </button>
