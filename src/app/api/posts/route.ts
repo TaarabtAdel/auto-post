@@ -7,6 +7,7 @@ import { facebookPage } from "@/db/schema/facebook-page";
 import { eq, and, desc, inArray } from "drizzle-orm";
 import { randomBytes } from "crypto";
 import { postsLimiter, checkRateLimit } from "@/lib/rate-limit";
+import { uploadMediaPublicUrl } from "@/lib/upload-media-url";
 
 interface MediaInput {
   filePath: string;
@@ -83,7 +84,7 @@ export async function GET() {
         fileName: m.fileName,
         fileSize: m.fileSize,
         mimeType: m.mimeType,
-        url: `/api/uploads/${m.filePath}`,
+        url: uploadMediaPublicUrl(m.filePath),
       })),
   }));
 
@@ -201,7 +202,7 @@ export async function POST(request: NextRequest) {
       media: media.map((m, i) => ({
         ...m,
         sortOrder: i,
-        url: `/api/uploads/${m.filePath}`,
+        url: uploadMediaPublicUrl(m.filePath),
       })),
     },
   });

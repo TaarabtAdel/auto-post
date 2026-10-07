@@ -496,9 +496,13 @@ export default function NewPostPage() {
                 {m.fileType === "image" ? (
                   <img src={m.url} alt={m.fileName} className="w-24 h-24 object-cover" />
                 ) : (
-                  <div className="w-24 h-24 bg-gray-100 flex items-center justify-center text-2xl">
-                    🎬
-                  </div>
+                  <video
+                    src={m.url}
+                    className="w-24 h-24 object-cover bg-black"
+                    muted
+                    playsInline
+                    preload="metadata"
+                  />
                 )}
                 <button
                   type="button"

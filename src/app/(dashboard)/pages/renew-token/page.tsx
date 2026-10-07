@@ -22,8 +22,10 @@ export default async function RenewTokenPage() {
           Gia hạn User Access Token
         </h2>
         <p className="text-gray-600 mt-1">
-          Dán token ngắn hạn từ Graph API Explorer — hệ thống đổi sang long-lived
-          (~60 ngày) bằng App Secret của App đã chọn.
+          Trên <strong>/pages</strong>, nút <strong>Gia hạn</strong> tự dùng Page token đã
+          lưu — không cần dán token. Trang này dành cho trường hợp đặc biệt: dán{" "}
+          <strong>User token</strong> từ Graph API Explorer để lấy lại Page token khi token
+          Page đã chết hẳn.
         </p>
       </div>
       <TokenRenewForm apps={apps} />

@@ -6,10 +6,14 @@ import { decryptPageToken } from "@/lib/crypto";
 import {
   publishPost,
   publishPhotoPost,
+  publishVideoPost,
   publishPostComment,
+  debugAccessToken,
+  tokenHasScope,
 } from "@/lib/facebook";
+import { getFacebookCredentials } from "@/lib/workspace-app";
+import { uploadMediaFsPath } from "@/lib/upload-media-url";
 import { readFile } from "fs/promises";
-import path from "path";
 
 export interface PublishPostResult {
   success: boolean;
@@ -52,21 +56,37 @@ export async function publishPostById(postId: string): Promise<PublishPostResult
     .from(postMedia)
     .where(eq(postMedia.postId, postId));
 
-  const firstImage = media.find((m) => m.fileType === "image");
+  const sortedMedia = [...media].sort((a, b) => a.sortOrder - b.sortOrder);
+  const primary = sortedMedia[0];
   let result: PublishPostResult;
 
   try {
-    if (firstImage) {
-      const filePath = path.join(process.cwd(), "uploads", firstImage.filePath);
+    if (primary?.fileType === "image") {
+      const filePath = uploadMediaFsPath(process.cwd(), primary.filePath);
       const photoBuffer = await readFile(filePath);
       result = await publishPhotoPost(
         token,
         fbPage.pageId,
         p.content,
         photoBuffer,
-        firstImage.fileName
+        primary.fileName
+      );
+    } else if (primary?.fileType === "video") {
+      const filePath = uploadMediaFsPath(process.cwd(), primary.filePath);
+      const videoBuffer = await readFile(filePath);
+      result = await publishVideoPost(
+        token,
+        fbPage.pageId,
+        p.content,
+        videoBuffer,
+        primary.fileName
       );
     } else {
+      if (sortedMedia.some((m) => m.fileType === "video")) {
+        console.warn(
+          `[publish] Post ${postId} có video nhưng không có file video hợp lệ ở sortOrder đầu — đăng text-only.`
+        );
+      }
       result = await publishPost(token, fbPage.pageId, p.content);
     }
   } catch (err) {
@@ -83,10 +103,33 @@ export async function publishPostById(postId: string): Promise<PublishPostResult
     const firstComment = p.firstComment?.trim();
 
     if (firstComment && result.fbPostId) {
+      await new Promise((r) => setTimeout(r, 2000));
+
+      let tokenScopes: string[] | null = null;
+      if (fbPage.workspaceAppId) {
+        try {
+          const creds = await getFacebookCredentials(
+            fbPage.workspaceAppId,
+            p.userId
+          );
+          const debug = await debugAccessToken(token, creds);
+          tokenScopes = debug.scopes;
+          if (!tokenHasScope(debug, "pages_manage_engagement")) {
+            console.warn(
+              `[publish] Page token thiếu pages_manage_engagement trong debug_token. scopes=`,
+              debug.scopes
+            );
+          }
+        } catch (e) {
+          console.warn("[publish] debug_token trước comment:", e);
+        }
+      }
+
       const commentResult = await publishPostComment(
         token,
         result.fbPostId,
-        firstComment
+        firstComment,
+        { tokenScopes }
       );
       if (!commentResult.success) {
         commentWarning = `Bài đã đăng; bình luận đầu thất bại: ${commentResult.error || "Unknown"}`;

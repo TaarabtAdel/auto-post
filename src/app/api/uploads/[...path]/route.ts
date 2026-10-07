@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { readFile, stat } from "fs/promises";
-import { join, resolve, normalize } from "path";
+import { resolve, normalize } from "path";
+import { normalizeUploadRelativePath } from "@/lib/upload-media-url";
 import { auth } from "@/lib/auth";
 import { headers } from "next/headers";
 
@@ -44,7 +45,9 @@ export async function GET(_request: NextRequest, { params }: Params) {
 
   // Path traversal protection: resolve and validate
   const uploadsDir = resolve(process.cwd(), "uploads");
-  const requestedPath = normalize(pathSegments.join("/"));
+  const requestedPath = normalize(
+    normalizeUploadRelativePath(pathSegments.join("/"))
+  );
   const filePath = resolve(uploadsDir, requestedPath);
 
   // Ensure resolved path is within uploads directory

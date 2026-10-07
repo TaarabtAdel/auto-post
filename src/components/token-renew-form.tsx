@@ -147,8 +147,9 @@ export function TokenRenewForm({ apps }: Props) {
               </a>
               . Chọn đúng Facebook App của bạn, quyền{" "}
               <code className="text-gray-700">pages_show_list</code>,{" "}
-              <code className="text-gray-700">pages_manage_posts</code> (nếu cần
-              lấy Page token). Server sẽ gọi{" "}
+              <code className="text-gray-700">pages_manage_posts</code>,{" "}
+              <code className="text-gray-700">pages_manage_engagement</code> (bình
+              luận đầu tiên sau đăng). Server sẽ gọi{" "}
               <code className="text-gray-700">fb_exchange_token</code> — App
               Secret không hiển thị trên trình duyệt.
             </p>

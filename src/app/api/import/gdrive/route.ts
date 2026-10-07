@@ -5,6 +5,7 @@ import { parseDriveUrl, fetchDriveContent, fetchDriveMedia } from "@/lib/gdrive"
 import { writeFile, mkdir } from "fs/promises";
 import { join } from "path";
 import { randomBytes } from "crypto";
+import { uploadMediaPublicUrl } from "@/lib/upload-media-url";
 
 /**
  * POST /api/import/gdrive — import content or media from a Google Drive URL
@@ -84,7 +85,7 @@ export async function POST(request: NextRequest) {
         fileSize: media.size,
         mimeType: media.mimeType,
         fileType: media.fileType,
-        url: `/api/uploads/${relativePath}`,
+        url: uploadMediaPublicUrl(relativePath),
       });
     }
 

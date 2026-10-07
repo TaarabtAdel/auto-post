@@ -31,6 +31,8 @@ export default async function PagesPage() {
         pageName: facebookPage.pageName,
         pageAvatar: facebookPage.pageAvatar,
         tokenStatus: facebookPage.tokenStatus,
+        tokenRenewedAt: facebookPage.tokenRenewedAt,
+        tokenExpiresAt: facebookPage.tokenExpiresAt,
         workspaceAppId: facebookPage.workspaceAppId,
         workspaceAppName: workspaceApp.name,
       })
@@ -62,6 +64,18 @@ export default async function PagesPage() {
       ...page,
       postedCount: stats.posted,
       pendingCount: stats.pending,
+      tokenRenewedAt:
+        page.tokenRenewedAt instanceof Date
+          ? page.tokenRenewedAt.toISOString()
+          : page.tokenRenewedAt
+            ? String(page.tokenRenewedAt)
+            : null,
+      tokenExpiresAt:
+        page.tokenExpiresAt instanceof Date
+          ? page.tokenExpiresAt.toISOString()
+          : page.tokenExpiresAt
+            ? String(page.tokenExpiresAt)
+            : null,
     };
   });
 
