@@ -6,12 +6,13 @@ import { post, postMedia } from "@/db/schema/post";
 import { facebookPage } from "@/db/schema/facebook-page";
 import { eq, and } from "drizzle-orm";
 import { randomBytes } from "crypto";
-import { unlink } from "fs/promises";
-import { join } from "path";
 import {
   cancelPendingQueueForPost,
   enqueuePostsForBatch,
 } from "@/lib/publish-queue-processor";
+import { describeDeleteImpact } from "@/lib/post-delete-impact";
+import { deleteMediaFilesForPost } from "@/lib/post-media-cleanup";
+import { uploadMediaPublicUrl } from "@/lib/upload-media-url";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -76,7 +77,7 @@ export async function GET(_request: NextRequest, { params }: Params) {
           fileName: m.fileName,
           fileSize: m.fileSize,
           mimeType: m.mimeType,
-          url: `/api/uploads/${m.filePath}`,
+          url: uploadMediaPublicUrl(m.filePath),
         })),
     },
   });
@@ -100,10 +101,17 @@ export async function PATCH(request: NextRequest, { params }: Params) {
     return NextResponse.json({ error: "Post không tồn tại." }, { status: 404 });
   }
 
-  // Only allow editing drafts (or scheduling)
-  if (p.status !== "draft" && p.status !== "scheduled" && p.status !== "queued") {
+  if (
+    p.status !== "draft" &&
+    p.status !== "scheduled" &&
+    p.status !== "queued" &&
+    p.status !== "failed"
+  ) {
     return NextResponse.json(
-      { error: "Chỉ có thể sửa bài ở trạng thái draft, queued hoặc scheduled." },
+      {
+        error:
+          "Chỉ sửa được bài nháp, trong hàng đợi, đã hẹn giờ hoặc thất bại. Bài đã đăng chỉ xem / copy sang Page khác.",
+      },
       { status: 400 }
     );
   }
@@ -237,7 +245,7 @@ export async function PATCH(request: NextRequest, { params }: Params) {
 }
 
 /**
- * DELETE /api/posts/[id] — delete post and its media files
+ * DELETE /api/posts/[id] — xóa một bản ghi (một Fanpage). Không gỡ bài trên Facebook.
  */
 export async function DELETE(_request: NextRequest, { params }: Params) {
   const session = await auth.api.getSession({
@@ -253,23 +261,21 @@ export async function DELETE(_request: NextRequest, { params }: Params) {
     return NextResponse.json({ error: "Post không tồn tại." }, { status: 404 });
   }
 
-  // Get media files to delete from disk
-  const media = await db
-    .select({ filePath: postMedia.filePath })
-    .from(postMedia)
-    .where(eq(postMedia.postId, id));
-
-  // Delete post (cascades to post_media)
-  await db.delete(post).where(eq(post.id, id));
-
-  // Best-effort delete files from disk
-  for (const m of media) {
-    try {
-      await unlink(join(process.cwd(), "uploads", m.filePath));
-    } catch {
-      // File may already be deleted — ignore
-    }
+  const impact = describeDeleteImpact(p.status);
+  if (!impact.allow) {
+    return NextResponse.json({ error: impact.detail }, { status: 409 });
   }
 
-  return NextResponse.json({ success: true });
+  await cancelPendingQueueForPost(id);
+  await deleteMediaFilesForPost(id);
+  await db.delete(post).where(eq(post.id, id));
+
+  return NextResponse.json({
+    success: true,
+    message:
+      p.status === "posted"
+        ? "Đã xóa khỏi AutoPost. Bài trên Facebook vẫn còn."
+        : "Đã xóa bài và hủy hàng đợi (nếu có).",
+    facebookUnchanged: p.status === "posted",
+  });
 }

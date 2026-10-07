@@ -5,6 +5,7 @@ import { writeFile, mkdir } from "fs/promises";
 import { join } from "path";
 import { randomBytes } from "crypto";
 import { uploadLimiter, checkRateLimit } from "@/lib/rate-limit";
+import { uploadMediaPublicUrl } from "@/lib/upload-media-url";
 
 const ALLOWED_IMAGE_TYPES = [
   "image/jpeg",
@@ -107,6 +108,6 @@ export async function POST(request: NextRequest) {
     fileSize: file.size,
     mimeType: file.type,
     fileType: isVideo ? "video" : "image",
-    url: `/api/uploads/${relativePath}`,
+    url: uploadMediaPublicUrl(relativePath),
   });
 }

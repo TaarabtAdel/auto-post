@@ -18,6 +18,10 @@ export const facebookPage = sqliteTable(
     pageAvatar: text("page_avatar"),
     encryptedToken: text("encrypted_token").notNull(),
     tokenStatus: text("token_status").notNull().default("active"), // 'active' | 'expired' | 'invalid'
+    /** Lần gia hạn token gần nhất (đổi user token → page token mới). */
+    tokenRenewedAt: integer("token_renewed_at", { mode: "timestamp_ms" }),
+    /** Hết hạn token (từ Graph debug_token); null nếu không xác định / không hết hạn. */
+    tokenExpiresAt: integer("token_expires_at", { mode: "timestamp_ms" }),
     createdAt: integer("created_at", { mode: "timestamp_ms" })
       .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
       .notNull(),

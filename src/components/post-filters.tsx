@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { getFacebookPostUrl } from "@/lib/facebook-page-url";
+import { describeDeleteImpact } from "@/lib/post-delete-impact";
 
 interface PostData {
   id: string;
@@ -58,10 +59,6 @@ function formatDate(dateStr: string | null) {
   });
 }
 
-function canEdit(status: string) {
-  return ["draft", "queued", "scheduled", "failed"].includes(status);
-}
-
 function canRunNow(status: string) {
   return ["queued", "scheduled", "draft", "failed"].includes(status);
 }
@@ -83,6 +80,7 @@ export function PostFilters({
   const [queueRunning, setQueueRunning] = useState(false);
   const [runningPostId, setRunningPostId] = useState<string | null>(null);
   const [runError, setRunError] = useState("");
+  const [deletingPostId, setDeletingPostId] = useState<string | null>(null);
 
   const filtered =
     filter === "all"
@@ -100,6 +98,31 @@ export function PostFilters({
       router.refresh();
     } finally {
       setQueueRunning(false);
+    }
+  }
+
+  async function deletePost(postId: string, status: string) {
+    const impact = describeDeleteImpact(status);
+    if (!impact.allow) {
+      setRunError(impact.detail);
+      return;
+    }
+    if (!confirm(`${impact.title}\n\n${impact.detail}`)) return;
+
+    setDeletingPostId(postId);
+    setRunError("");
+    try {
+      const res = await fetch(`/api/posts/${postId}`, { method: "DELETE" });
+      const data = await res.json();
+      if (!res.ok) {
+        setRunError(data.error || "Không xóa được.");
+        return;
+      }
+      router.refresh();
+    } catch {
+      setRunError("Lỗi kết nối.");
+    } finally {
+      setDeletingPostId(null);
     }
   }
 
@@ -264,34 +287,43 @@ export function PostFilters({
                         {p.imageCount === 0 && p.videoCount === 0 && "—"}
                       </td>
                       <td className="px-4 py-3 whitespace-nowrap text-right">
-                        <div className="flex flex-col items-end gap-1">
+                        <div className="flex flex-wrap items-center justify-end gap-1.5">
+                          <Link
+                            href={`/posts/${p.id}/edit`}
+                            className="inline-flex items-center text-xs font-medium text-blue-700 bg-blue-50 border border-blue-200 hover:bg-blue-100 px-2.5 py-1 rounded-md"
+                          >
+                            Sửa
+                          </Link>
                           {canRunNow(p.status) && (
                             <button
                               type="button"
                               onClick={() => runPostNow(p.id)}
                               disabled={runningPostId === p.id || queueRunning}
-                              className="text-xs font-medium text-white bg-green-600 hover:bg-green-700 px-2.5 py-1 rounded disabled:opacity-50"
+                              className="text-xs font-medium text-white bg-green-600 hover:bg-green-700 px-2.5 py-1 rounded-md disabled:opacity-50"
                             >
                               {runningPostId === p.id ? "…" : "Run now"}
                             </button>
-                          )}
-                          {canEdit(p.status) && (
-                            <Link
-                              href={`/posts/${p.id}/edit`}
-                              className="text-xs text-blue-600 hover:underline font-medium"
-                            >
-                              Sửa
-                            </Link>
                           )}
                           {p.status === "posted" && fbUrl && (
                             <a
                               href={fbUrl}
                               target="_blank"
                               rel="noopener noreferrer"
-                              className="text-xs text-blue-600 hover:underline"
+                              className="text-xs font-medium text-gray-700 border border-gray-200 hover:bg-gray-50 px-2.5 py-1 rounded-md"
                             >
                               Facebook
                             </a>
+                          )}
+                          {describeDeleteImpact(p.status).allow && (
+                            <button
+                              type="button"
+                              onClick={() => deletePost(p.id, p.status)}
+                              disabled={deletingPostId === p.id || queueRunning}
+                              className="text-xs font-medium text-red-700 border border-red-200 hover:bg-red-50 px-2.5 py-1 rounded-md disabled:opacity-50"
+                              title="Chỉ xóa trong AutoPost; bài Facebook (nếu đã đăng) vẫn còn"
+                            >
+                              {deletingPostId === p.id ? "…" : "Xóa"}
+                            </button>
                           )}
                         </div>
                       </td>

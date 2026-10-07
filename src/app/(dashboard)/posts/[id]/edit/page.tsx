@@ -5,9 +5,12 @@ import { db } from "@/lib/db";
 import { post, postMedia } from "@/db/schema/post";
 import { facebookPage } from "@/db/schema/facebook-page";
 import { eq, and } from "drizzle-orm";
+import { getBatchSiblings } from "@/lib/post-batch";
+import { getFacebookPostUrl } from "@/lib/facebook-page-url";
 import { notFound } from "next/navigation";
 import { listWorkspaceApps } from "@/lib/workspace-app";
 import { PostEditForm } from "@/components/post-edit-form";
+import { uploadMediaPublicUrl } from "@/lib/upload-media-url";
 
 type Props = { params: Promise<{ id: string }> };
 
@@ -43,6 +46,12 @@ export default async function EditPostPage({ params }: Props) {
 
   const apps = await listWorkspaceApps(session!.user.id);
 
+  const batchSiblings = await getBatchSiblings(
+    session!.user.id,
+    p.batchId,
+    p.id
+  );
+
   return (
     <div>
       <div className="mb-6">
@@ -54,6 +63,8 @@ export default async function EditPostPage({ params }: Props) {
       <PostEditForm
         post={{
           id: p.id,
+          batchId: p.batchId,
+          fbPostId: p.fbPostId,
           content: p.content,
           firstComment: p.firstComment,
           status: p.status,
@@ -74,10 +85,19 @@ export default async function EditPostPage({ params }: Props) {
               fileType: m.fileType,
               fileSize: m.fileSize,
               mimeType: m.mimeType,
-              url: `/api/uploads/${m.filePath}`,
+              url: uploadMediaPublicUrl(m.filePath),
             })),
         }}
         apps={apps.map((a) => ({ id: a.id, name: a.name }))}
+        batchSiblings={batchSiblings.map((s) => ({
+          ...s,
+          scheduledAt: s.scheduledAt?.toISOString() ?? null,
+          postedAt: s.postedAt?.toISOString() ?? null,
+          facebookUrl:
+            s.status === "posted" && s.fbPostId
+              ? getFacebookPostUrl(s.fbPostId, s.graphPageId)
+              : null,
+        }))}
       />
     </div>
   );

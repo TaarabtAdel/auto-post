@@ -6,6 +6,7 @@ import { writeFile, mkdir } from "fs/promises";
 import { join } from "path";
 import { randomBytes } from "crypto";
 import { aiLimiter, checkRateLimit as checkLimit } from "@/lib/rate-limit";
+import { uploadMediaPublicUrl } from "@/lib/upload-media-url";
 
 /**
  * POST /api/ai/generate — generate Facebook post content using AI
@@ -87,7 +88,7 @@ export async function POST(request: NextRequest) {
             fileSize: img.buffer.length,
             mimeType: img.mimeType,
             fileType: "image" as const,
-            url: `/api/uploads/${relativePath}`,
+            url: uploadMediaPublicUrl(relativePath),
           };
         } catch {
           return null;

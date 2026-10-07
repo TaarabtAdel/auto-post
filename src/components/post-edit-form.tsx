@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
+import { describeDeleteImpact } from "@/lib/post-delete-impact";
 
 interface MediaItem {
   id: string;
@@ -14,8 +15,19 @@ interface MediaItem {
   url: string;
 }
 
+interface BatchSiblingView {
+  id: string;
+  status: string;
+  pageName: string | null;
+  facebookUrl: string | null;
+  scheduledAt: string | null;
+  postedAt: string | null;
+}
+
 interface PostDetail {
   id: string;
+  batchId: string | null;
+  fbPostId: string | null;
   content: string;
   firstComment: string | null;
   status: string;
@@ -40,7 +52,17 @@ interface PageOption {
 interface Props {
   post: PostDetail;
   apps: AppOption[];
+  batchSiblings: BatchSiblingView[];
 }
+
+const STATUS_LABEL: Record<string, string> = {
+  draft: "Nháp",
+  queued: "Hàng đợi",
+  scheduled: "Hẹn giờ",
+  posting: "Đang đăng",
+  posted: "Đã đăng",
+  failed: "Lỗi",
+};
 
 function toLocalDatetimeValue(iso: string | null): string {
   if (!iso) return "";
@@ -49,7 +71,7 @@ function toLocalDatetimeValue(iso: string | null): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
-export function PostEditForm({ post, apps }: Props) {
+export function PostEditForm({ post, apps, batchSiblings }: Props) {
   const router = useRouter();
   const [content, setContent] = useState(post.content);
   const [firstComment, setFirstComment] = useState(post.firstComment ?? "");
@@ -63,6 +85,7 @@ export function PostEditForm({ post, apps }: Props) {
   const [success, setSuccess] = useState("");
 
   const editable = ["draft", "queued", "scheduled", "failed"].includes(post.status);
+  const isPosted = post.status === "posted";
 
   useEffect(() => {
     fetch("/api/facebook-pages")
@@ -90,12 +113,27 @@ export function PostEditForm({ post, apps }: Props) {
   );
 
   const otherPages = appPages.filter((p) => p.id !== facebookPageId);
+  const canCloneToMore = otherPages.length > 0 && (editable || isPosted);
 
   function toggleExtra(id: string) {
     setExtraPageIds((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
       else next.add(id);
+      return next;
+    });
+  }
+
+  function selectAllExtraPages() {
+    setExtraPageIds(new Set(otherPages.map((p) => p.id)));
+  }
+
+  function invertExtraPages() {
+    setExtraPageIds((prev) => {
+      const next = new Set<string>();
+      for (const p of otherPages) {
+        if (!prev.has(p.id)) next.add(p.id);
+      }
       return next;
     });
   }
@@ -127,7 +165,11 @@ export function PostEditForm({ post, apps }: Props) {
         setError(data.error || "Không thể lưu.");
         return;
       }
-      setSuccess("Đã lưu bài viết.");
+      setSuccess(
+        batchSiblings.length > 0
+          ? "Đã lưu — chỉ áp dụng cho Fanpage này, không đổi các Fanpage khác trong cùng đợt."
+          : "Đã lưu bài viết."
+      );
       router.refresh();
     } catch {
       setError("Lỗi kết nối.");
@@ -170,7 +212,35 @@ export function PostEditForm({ post, apps }: Props) {
         setError(data.error || "Không thể tạo bản cho Page khác.");
         return;
       }
-      setSuccess(`Đã thêm ${data.pageCount} bài vào hàng đợi.`);
+      setSuccess(
+        `Đã tạo ${data.pageCount} bài mới (hàng đợi). Bài đã đăng trên Fanpage hiện tại không bị sửa.`
+      );
+      router.push("/posts");
+      router.refresh();
+    } catch {
+      setError("Lỗi kết nối.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleDelete() {
+    const impact = describeDeleteImpact(post.status);
+    if (!impact.allow) {
+      setError(impact.detail);
+      return;
+    }
+    if (!confirm(`${impact.title}\n\n${impact.detail}`)) return;
+
+    setLoading(true);
+    setError("");
+    try {
+      const res = await fetch(`/api/posts/${post.id}`, { method: "DELETE" });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error || "Không xóa được.");
+        return;
+      }
       router.push("/posts");
       router.refresh();
     } catch {
@@ -182,9 +252,70 @@ export function PostEditForm({ post, apps }: Props) {
 
   return (
     <form onSubmit={handleSave} className="space-y-6">
-      {!editable && (
+      <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 text-sm text-slate-800 space-y-2">
+        <p className="font-medium">Cách AutoPost xử lý sửa / xóa</p>
+        <ul className="list-disc pl-5 space-y-1 text-slate-700 text-xs">
+          <li>
+            <strong>Mỗi Fanpage = một bản ghi riêng.</strong> Sửa Page, nội dung, giờ đăng
+            chỉ ảnh hưởng <strong>bài này</strong>, không đổi các Fanpage khác (kể cả cùng
+            lúc lên lịch batch).
+          </li>
+          <li>
+            <strong>Đã đăng lên Facebook:</strong> không sửa được bài live trên FB từ đây. Muốn
+            đăng nội dung khác → chỉnh bản <em>chưa đăng</em> hoặc dùng{" "}
+            <strong>Đăng thêm Fanpage khác</strong> (tạo bài queue mới).
+          </li>
+          <li>
+            <strong>Xóa:</strong> chỉ gỡ trong AutoPost + hủy queue.{" "}
+            <strong>Không gỡ</strong> bài đã public trên Facebook.
+          </li>
+        </ul>
+      </div>
+
+      {isPosted && (
         <div className="bg-amber-50 text-amber-900 px-4 py-3 rounded-lg text-sm">
-          Bài đã đăng — chỉ xem, không sửa được nội dung gốc.
+          Bài đã đăng — form chỉ xem. Bài trên Facebook giữ nguyên. Dùng phần bên dưới để
+          hẹn đăng sang Fanpage khác.
+        </div>
+      )}
+
+      {batchSiblings.length > 0 && (
+        <div className="bg-white border border-gray-200 rounded-xl p-4">
+          <h3 className="text-sm font-semibold text-gray-900 mb-2">
+            Cùng đợt đăng ({post.batchId?.slice(0, 8)}…)
+          </h3>
+          <p className="text-xs text-gray-500 mb-3">
+            Các Fanpage khác — sửa/xóa từng dòng riêng tại /posts.
+          </p>
+          <ul className="text-sm space-y-2">
+            {batchSiblings.map((s) => (
+              <li
+                key={s.id}
+                className="flex flex-wrap items-center gap-2 border-b border-gray-50 pb-2 last:border-0"
+              >
+                <span className="font-medium">{s.pageName ?? "—"}</span>
+                <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100">
+                  {STATUS_LABEL[s.status] ?? s.status}
+                </span>
+                {s.facebookUrl && (
+                  <a
+                    href={s.facebookUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-xs text-blue-600 hover:underline"
+                  >
+                    Facebook ↗
+                  </a>
+                )}
+                <Link
+                  href={`/posts/${s.id}/edit`}
+                  className="text-xs text-blue-600 hover:underline ml-auto"
+                >
+                  Mở bài
+                </Link>
+              </li>
+            ))}
+          </ul>
         </div>
       )}
 
@@ -197,9 +328,16 @@ export function PostEditForm({ post, apps }: Props) {
 
       <div className="bg-white border border-gray-200 rounded-xl p-6 space-y-4">
         <p className="text-sm text-gray-500">
-          Trạng thái: <strong>{post.status}</strong>
-          {post.pageName ? ` · Page hiện tại: ${post.pageName}` : null}
+          Trạng thái: <strong>{STATUS_LABEL[post.status] ?? post.status}</strong>
+          {post.pageName ? ` · Fanpage: ${post.pageName}` : null}
         </p>
+
+        {editable && (
+          <p className="text-xs text-blue-800 bg-blue-50 px-3 py-2 rounded-md">
+            Đổi Fanpage bên dưới = chuyển <strong>bài chờ đăng này</strong> sang Page khác, không
+            tạo thêm bài trên Page cũ.
+          </p>
+        )}
 
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">Facebook App</label>
@@ -280,10 +418,41 @@ export function PostEditForm({ post, apps }: Props) {
         {post.media.length > 0 && (
           <div>
             <p className="text-sm font-medium text-gray-700 mb-2">Media (giữ nguyên file)</p>
-            <ul className="text-xs text-gray-600 space-y-1">
+            <ul className="space-y-3">
               {post.media.map((m) => (
-                <li key={m.id}>
-                  {m.fileType === "video" ? "🎬" : "🖼"} {m.fileName}
+                <li
+                  key={m.id}
+                  className="flex flex-wrap items-start gap-3 text-xs text-gray-600 border border-gray-100 rounded-lg p-3"
+                >
+                  {m.fileType === "image" ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={m.url}
+                      alt={m.fileName}
+                      className="w-28 h-28 object-cover rounded-md border border-gray-200 shrink-0"
+                    />
+                  ) : (
+                    <video
+                      src={m.url}
+                      controls
+                      className="max-w-xs max-h-40 rounded-md border border-gray-200 bg-black shrink-0"
+                      preload="metadata"
+                    />
+                  )}
+                  <div className="min-w-0 flex-1">
+                    <p className="font-medium text-gray-800 text-sm mb-1">{m.fileName}</p>
+                    <a
+                      href={m.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-blue-600 hover:underline break-all"
+                    >
+                      {m.url}
+                    </a>
+                    <p className="text-[10px] text-gray-400 mt-1">
+                      File trên server: uploads/{m.filePath}
+                    </p>
+                  </div>
                 </li>
               ))}
             </ul>
@@ -291,14 +460,42 @@ export function PostEditForm({ post, apps }: Props) {
         )}
       </div>
 
-      {editable && otherPages.length > 0 && (
-        <div className="bg-white border border-gray-200 rounded-xl p-6">
+      {canCloneToMore && (
+        <div className="bg-white border border-green-200 rounded-xl p-6">
           <h3 className="text-sm font-semibold text-gray-900 mb-2">
-            Đăng thêm bản copy sang Page khác (cùng App)
+            Đăng thêm Fanpage khác (tạo bài mới)
           </h3>
           <p className="text-xs text-gray-500 mb-3">
-            Tạo bài mới trong hàng đợi với cùng nội dung/media, không đổi bài hiện tại.
+            Tạo bản ghi + hàng đợi mới cho từng Page tick chọn.{" "}
+            <strong>Không sửa</strong> bài đã đăng; không đổi bài đang chờ của Fanpage hiện
+            tại (trừ khi bạn Lưu ở form trên).
           </p>
+          {!editable && (
+            <p className="text-xs text-amber-800 bg-amber-50 px-2 py-1.5 rounded mb-3">
+              Dùng nội dung đang hiển thị (bài đã đăng) làm mẫu cho lần hẹn mới.
+            </p>
+          )}
+          <div className="flex flex-wrap gap-2 mb-3">
+            <button
+              type="button"
+              onClick={selectAllExtraPages}
+              disabled={otherPages.length === 0 || loading}
+              className="text-xs font-medium text-blue-700 border border-blue-200 bg-blue-50 hover:bg-blue-100 px-3 py-1.5 rounded-md disabled:opacity-50"
+            >
+              Chọn tất cả
+            </button>
+            <button
+              type="button"
+              onClick={invertExtraPages}
+              disabled={otherPages.length === 0 || loading}
+              className="text-xs font-medium text-gray-700 border border-gray-200 bg-gray-50 hover:bg-gray-100 px-3 py-1.5 rounded-md disabled:opacity-50"
+            >
+              Đảo ngược
+            </button>
+            <span className="text-xs text-gray-500 self-center">
+              {extraPageIds.size}/{otherPages.length} Fanpage
+            </span>
+          </div>
           <ul className="space-y-2 mb-4">
             {otherPages.map((p) => (
               <label key={p.id} className="flex items-center gap-2 text-sm">
@@ -318,7 +515,7 @@ export function PostEditForm({ post, apps }: Props) {
             disabled={loading}
             className="bg-green-600 text-white px-4 py-2 rounded-lg text-sm disabled:opacity-50"
           >
-            Thêm vào hàng đợi ({extraPageIds.size} Page)
+            Tạo hàng đợi cho {extraPageIds.size || "…"} Fanpage
           </button>
         </div>
       )}
@@ -331,7 +528,7 @@ export function PostEditForm({ post, apps }: Props) {
               disabled={loading}
               className="bg-blue-600 text-white px-5 py-2 rounded-lg text-sm disabled:opacity-50"
             >
-              {loading ? "Đang lưu..." : "Lưu thay đổi"}
+              {loading ? "Đang lưu..." : "Lưu (chỉ Fanpage này)"}
             </button>
             <button
               type="button"
@@ -378,6 +575,16 @@ export function PostEditForm({ post, apps }: Props) {
               Run now
             </button>
           </>
+        )}
+        {describeDeleteImpact(post.status).allow && (
+          <button
+            type="button"
+            onClick={handleDelete}
+            disabled={loading}
+            className="text-red-600 border border-red-200 hover:bg-red-50 px-5 py-2 rounded-lg text-sm disabled:opacity-50"
+          >
+            Xóa bản ghi này
+          </button>
         )}
         <Link
           href="/posts"
