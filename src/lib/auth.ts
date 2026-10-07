@@ -12,7 +12,7 @@ export const auth = betterAuth({
     enabled: true,
   },
   trustedOrigins: [
-    "http://localhost:3000",
-    "https://homelyy.duckdns.org",
+    "http://localhost:3100",
+    ...(process.env.BETTER_AUTH_URL ? [process.env.BETTER_AUTH_URL] : []),
   ],
 });

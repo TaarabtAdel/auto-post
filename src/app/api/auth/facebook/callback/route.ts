@@ -12,6 +12,7 @@ import {
   exchangeForLongLivedToken,
   getUserPages,
 } from "@/lib/facebook";
+import { getFacebookCredentials } from "@/lib/workspace-app";
 
 /**
  * GET /api/auth/facebook/callback
@@ -31,7 +32,6 @@ export async function GET(request: NextRequest) {
   const state = searchParams.get("state");
   const errorParam = searchParams.get("error");
 
-  // User denied permission
   if (errorParam) {
     const errorDesc = searchParams.get("error_description") || "Bạn đã từ chối quyền truy cập.";
     return redirectWithError(errorDesc);
@@ -41,33 +41,40 @@ export async function GET(request: NextRequest) {
     return redirectWithError("Thiếu code hoặc state từ Facebook.");
   }
 
-  // Verify CSRF state
   const cookieStore = await cookies();
   const savedState = cookieStore.get("fb_oauth_state")?.value;
+  const workspaceAppId = cookieStore.get("fb_oauth_workspace_app_id")?.value;
   cookieStore.delete("fb_oauth_state");
+  cookieStore.delete("fb_oauth_workspace_app_id");
 
   if (!savedState || savedState !== state) {
     return redirectWithError("State không khớp — có thể bị tấn công CSRF.");
   }
 
-  const baseUrl = process.env.BETTER_AUTH_URL || "http://localhost:3000";
+  if (!workspaceAppId) {
+    return redirectWithError("Thiếu thông tin App. Hãy kết nối lại từ trang Pages.");
+  }
+
+  let credentials;
+  try {
+    credentials = await getFacebookCredentials(workspaceAppId, session.user.id);
+  } catch {
+    return redirectWithError("App không hợp lệ hoặc đã bị xóa.");
+  }
+
+  const baseUrl =
+    process.env.BETTER_AUTH_URL || `http://localhost:${process.env.PORT || "3100"}`;
   const redirectUri = `${baseUrl}/api/auth/facebook/callback`;
 
   try {
-    // Step 1: Exchange code for short-lived user token
-    const shortLivedToken = await exchangeCodeForToken(code, redirectUri);
-
-    // Step 2: Exchange for long-lived user token (~60 days)
-    const longLivedToken = await exchangeForLongLivedToken(shortLivedToken);
-
-    // Step 3: Get user's pages with permanent page tokens
+    const shortLivedToken = await exchangeCodeForToken(code, redirectUri, credentials);
+    const longLivedToken = await exchangeForLongLivedToken(shortLivedToken, credentials);
     const pages = await getUserPages(longLivedToken);
 
     if (pages.length === 0) {
       return redirectWithError("Không tìm thấy Facebook Page nào. Hãy chắc chắn bạn là Admin của ít nhất 1 Page.");
     }
 
-    // Step 4: Save each page (skip already connected)
     let newCount = 0;
     let skippedCount = 0;
 
@@ -83,7 +90,6 @@ export async function GET(request: NextRequest) {
         );
 
       if (existing.length > 0) {
-        // Update existing page with fresh token
         await db
           .update(facebookPage)
           .set({
@@ -91,14 +97,15 @@ export async function GET(request: NextRequest) {
             tokenStatus: "active",
             pageName: page.pageName,
             pageAvatar: page.pageAvatar,
+            workspaceAppId,
           })
           .where(eq(facebookPage.id, existing[0].id));
         skippedCount++;
       } else {
-        // Insert new page
         await db.insert(facebookPage).values({
           id: randomBytes(16).toString("hex"),
           userId: session.user.id,
+          workspaceAppId,
           pageId: page.pageId,
           pageName: page.pageName,
           pageAvatar: page.pageAvatar,
@@ -109,7 +116,6 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // Redirect to pages with success
     const successMsg = buildSuccessMessage(newCount, skippedCount);
     return NextResponse.redirect(
       `${baseUrl}/pages?success=${encodeURIComponent(successMsg)}`
@@ -123,7 +129,8 @@ export async function GET(request: NextRequest) {
 }
 
 function redirectWithError(message: string) {
-  const baseUrl = process.env.BETTER_AUTH_URL || "http://localhost:3000";
+  const baseUrl =
+    process.env.BETTER_AUTH_URL || `http://localhost:${process.env.PORT || "3100"}`;
   return NextResponse.redirect(
     `${baseUrl}/pages?error=${encodeURIComponent(message)}`
   );

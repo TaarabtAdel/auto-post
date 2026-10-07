@@ -4,15 +4,21 @@ import { headers } from "next/headers";
 import { db } from "@/lib/db";
 import { post, postMedia } from "@/db/schema/post";
 import { facebookPage } from "@/db/schema/facebook-page";
+import { workspaceApp } from "@/db/schema/workspace-app";
 import { eq, desc, inArray } from "drizzle-orm";
 import Link from "next/link";
 import { PostFilters } from "@/components/post-filters";
+import { drainPublishQueue } from "@/lib/publish-queue-processor";
 
 export const metadata: Metadata = {
   title: "Bài viết",
 };
 
+export const dynamic = "force-dynamic";
+
 export default async function PostsPage() {
+  await drainPublishQueue(5);
+
   const session = await auth.api.getSession({
     headers: await headers(),
   });
@@ -25,6 +31,7 @@ export default async function PostsPage() {
       facebookPageId: post.facebookPageId,
       scheduledAt: post.scheduledAt,
       postedAt: post.postedAt,
+      fbPostId: post.fbPostId,
       errorMessage: post.errorMessage,
       createdAt: post.createdAt,
     })
@@ -47,10 +54,31 @@ export default async function PostsPage() {
 
   // Get page names
   const pages = await db
-    .select({ id: facebookPage.id, pageName: facebookPage.pageName })
+    .select({
+      id: facebookPage.id,
+      pageName: facebookPage.pageName,
+      pageId: facebookPage.pageId,
+      workspaceAppId: facebookPage.workspaceAppId,
+    })
     .from(facebookPage)
     .where(eq(facebookPage.userId, session!.user.id));
-  const pageMap = Object.fromEntries(pages.map((p) => [p.id, p.pageName]));
+
+  const apps = await db
+    .select({ id: workspaceApp.id, name: workspaceApp.name })
+    .from(workspaceApp)
+    .where(eq(workspaceApp.userId, session!.user.id));
+
+  const pageMap = Object.fromEntries(
+    pages.map((p) => [
+      p.id,
+      {
+        pageName: p.pageName,
+        graphPageId: p.pageId,
+        workspaceAppId: p.workspaceAppId,
+      },
+    ])
+  );
+  const appMap = Object.fromEntries(apps.map((a) => [a.id, a.name]));
 
   // Prepare data for client component
   const postsWithMeta = posts.map((p) => {
@@ -60,7 +88,16 @@ export default async function PostsPage() {
       createdAt: p.createdAt instanceof Date ? p.createdAt.toISOString() : p.createdAt,
       scheduledAt: p.scheduledAt instanceof Date ? p.scheduledAt.toISOString() : p.scheduledAt,
       postedAt: p.postedAt instanceof Date ? p.postedAt.toISOString() : p.postedAt,
-      pageName: p.facebookPageId ? pageMap[p.facebookPageId] || null : null,
+      pageName: p.facebookPageId
+        ? pageMap[p.facebookPageId]?.pageName ?? null
+        : null,
+      graphPageId: p.facebookPageId
+        ? pageMap[p.facebookPageId]?.graphPageId ?? null
+        : null,
+      workspaceAppName: p.facebookPageId
+        ? appMap[pageMap[p.facebookPageId]?.workspaceAppId ?? ""] ?? null
+        : null,
+      fbPostId: p.fbPostId,
       imageCount: postMediaItems.filter((m) => m.fileType === "image").length,
       videoCount: postMediaItems.filter((m) => m.fileType === "video").length,
     };
@@ -70,7 +107,9 @@ export default async function PostsPage() {
   const counts = {
     all: posts.length,
     draft: posts.filter((p) => p.status === "draft").length,
-    scheduled: posts.filter((p) => p.status === "scheduled").length,
+    scheduled: posts.filter((p) =>
+      ["scheduled", "queued", "posting"].includes(p.status)
+    ).length,
     posted: posts.filter((p) => p.status === "posted").length,
     failed: posts.filter((p) => p.status === "failed").length,
   };

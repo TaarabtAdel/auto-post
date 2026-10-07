@@ -6,12 +6,13 @@ import { facebookPage } from "@/db/schema/facebook-page";
 import { eq, and } from "drizzle-orm";
 import { verifyPageToken } from "@/lib/facebook";
 import { encrypt } from "@/lib/crypto";
+import { getWorkspaceAppForUser } from "@/lib/workspace-app";
 import { randomBytes } from "crypto";
 
 /**
- * GET /api/facebook-pages — list all pages for authenticated user
+ * GET /api/facebook-pages — list pages (?workspaceAppId= filter by app, unassigned = no app)
  */
-export async function GET() {
+export async function GET(request: NextRequest) {
   const session = await auth.api.getSession({
     headers: await headers(),
   });
@@ -19,17 +20,26 @@ export async function GET() {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const pages = await db
+  const filterApp = request.nextUrl.searchParams.get("workspaceAppId");
+
+  let pages = await db
     .select({
       id: facebookPage.id,
       pageId: facebookPage.pageId,
       pageName: facebookPage.pageName,
       pageAvatar: facebookPage.pageAvatar,
       tokenStatus: facebookPage.tokenStatus,
+      workspaceAppId: facebookPage.workspaceAppId,
       createdAt: facebookPage.createdAt,
     })
     .from(facebookPage)
     .where(eq(facebookPage.userId, session.user.id));
+
+  if (filterApp === "unassigned") {
+    pages = pages.filter((p) => !p.workspaceAppId);
+  } else if (filterApp) {
+    pages = pages.filter((p) => p.workspaceAppId === filterApp);
+  }
 
   return NextResponse.json({ pages });
 }
@@ -46,7 +56,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  let body: { accessToken?: string };
+  let body: { accessToken?: string; workspaceAppId?: string };
   try {
     body = await request.json();
   } catch {
@@ -56,7 +66,19 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const { accessToken } = body;
+  const { accessToken, workspaceAppId } = body;
+
+  if (!workspaceAppId?.trim()) {
+    return NextResponse.json(
+      { error: "Chọn App (workspaceAppId) trước khi kết nối Page." },
+      { status: 400 }
+    );
+  }
+
+  const wsApp = await getWorkspaceAppForUser(workspaceAppId.trim(), session.user.id);
+  if (!wsApp) {
+    return NextResponse.json({ error: "App không hợp lệ." }, { status: 404 });
+  }
   if (!accessToken || typeof accessToken !== "string" || accessToken.trim().length === 0) {
     return NextResponse.json(
       { error: "Access token là bắt buộc." },
@@ -99,6 +121,7 @@ export async function POST(request: NextRequest) {
   await db.insert(facebookPage).values({
     id,
     userId: session.user.id,
+    workspaceAppId: wsApp.id,
     pageId: pageInfo.pageId,
     pageName: pageInfo.pageName,
     pageAvatar: pageInfo.pageAvatar,

@@ -108,6 +108,7 @@ export async function POST(request: NextRequest) {
 
   let body: {
     content?: string;
+    firstComment?: string;
     facebookPageId?: string;
     media?: MediaInput[];
   };
@@ -120,7 +121,9 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const { content = "", facebookPageId, media = [] } = body;
+  const { content = "", firstComment: rawFirstComment, facebookPageId, media = [] } =
+    body;
+  const firstComment = (rawFirstComment ?? "").trim() || null;
 
   // Input validation
   if (content.length > 10000) {
@@ -133,6 +136,13 @@ export async function POST(request: NextRequest) {
   if (media.length > 10) {
     return NextResponse.json(
       { error: "Tối đa 10 file media." },
+      { status: 400 }
+    );
+  }
+
+  if (firstComment && firstComment.length > 8000) {
+    return NextResponse.json(
+      { error: "Bình luận đầu tiên tối đa 8.000 ký tự." },
       { status: 400 }
     );
   }
@@ -163,6 +173,7 @@ export async function POST(request: NextRequest) {
     userId: session.user.id,
     facebookPageId: facebookPageId || null,
     content,
+    firstComment,
     status: "draft",
   });
 

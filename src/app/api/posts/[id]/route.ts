@@ -8,6 +8,10 @@ import { eq, and } from "drizzle-orm";
 import { randomBytes } from "crypto";
 import { unlink } from "fs/promises";
 import { join } from "path";
+import {
+  cancelPendingQueueForPost,
+  enqueuePostsForBatch,
+} from "@/lib/publish-queue-processor";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -97,9 +101,9 @@ export async function PATCH(request: NextRequest, { params }: Params) {
   }
 
   // Only allow editing drafts (or scheduling)
-  if (p.status !== "draft" && p.status !== "scheduled") {
+  if (p.status !== "draft" && p.status !== "scheduled" && p.status !== "queued") {
     return NextResponse.json(
-      { error: "Chỉ có thể sửa bài ở trạng thái draft hoặc scheduled." },
+      { error: "Chỉ có thể sửa bài ở trạng thái draft, queued hoặc scheduled." },
       { status: 400 }
     );
   }
@@ -109,6 +113,7 @@ export async function PATCH(request: NextRequest, { params }: Params) {
     facebookPageId?: string | null;
     media?: MediaInput[];
     scheduledAt?: string | null;
+    firstComment?: string | null;
     status?: string;
   };
   try {
@@ -142,6 +147,16 @@ export async function PATCH(request: NextRequest, { params }: Params) {
   // Update post fields
   const updates: Record<string, unknown> = {};
   if (body.content !== undefined) updates.content = body.content;
+  if (body.firstComment !== undefined) {
+    const fc = body.firstComment?.trim() || null;
+    if (fc && fc.length > 8000) {
+      return NextResponse.json(
+        { error: "Bình luận đầu tiên tối đa 8.000 ký tự." },
+        { status: 400 }
+      );
+    }
+    updates.firstComment = fc;
+  }
   if (body.facebookPageId !== undefined)
     updates.facebookPageId = body.facebookPageId;
 
@@ -163,11 +178,25 @@ export async function PATCH(request: NextRequest, { params }: Params) {
           { status: 400 }
         );
       }
+      const batchId = p.batchId || randomBytes(16).toString("hex");
       updates.scheduledAt = scheduledDate;
-      updates.status = "scheduled";
+      updates.status = "queued";
+      updates.batchId = batchId;
+
+      await cancelPendingQueueForPost(id);
+      await enqueuePostsForBatch([
+        {
+          userId: session.user.id,
+          postId: id,
+          batchId,
+          queueOrder: 0,
+          scheduledAt: scheduledDate,
+        },
+      ]);
     } else {
       updates.scheduledAt = null;
       updates.status = "draft";
+      await cancelPendingQueueForPost(id);
     }
   }
 

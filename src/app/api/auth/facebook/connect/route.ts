@@ -1,16 +1,16 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { headers } from "next/headers";
 import { buildOAuthUrl } from "@/lib/facebook";
 import { randomBytes } from "crypto";
 import { cookies } from "next/headers";
+import { getFacebookCredentials } from "@/lib/workspace-app";
 
 /**
- * GET /api/auth/facebook/connect
+ * GET /api/auth/facebook/connect?workspaceAppId=...
  * Redirects user to Facebook OAuth dialog.
- * Requires authenticated session.
  */
-export async function GET() {
+export async function GET(request: NextRequest) {
   const session = await auth.api.getSession({
     headers: await headers(),
   });
@@ -19,30 +19,44 @@ export async function GET() {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  if (!process.env.FACEBOOK_APP_ID) {
+  const workspaceAppId = request.nextUrl.searchParams.get("workspaceAppId")?.trim();
+  if (!workspaceAppId) {
     return NextResponse.json(
-      { error: "Facebook App ID chưa được cấu hình." },
-      { status: 500 }
+      { error: "Chọn App (workspaceAppId) trước khi kết nối Facebook." },
+      { status: 400 }
     );
   }
 
-  const baseUrl = process.env.BETTER_AUTH_URL || "http://localhost:3000";
+  let credentials;
+  try {
+    credentials = await getFacebookCredentials(workspaceAppId, session.user.id);
+  } catch {
+    return NextResponse.json({ error: "App không hợp lệ." }, { status: 404 });
+  }
+
+  const baseUrl =
+    process.env.BETTER_AUTH_URL || `http://localhost:${process.env.PORT || "3100"}`;
   const redirectUri = `${baseUrl}/api/auth/facebook/callback`;
 
-  // CSRF state token
   const state = randomBytes(16).toString("hex");
 
-  // Store state in cookie for verification in callback
   const cookieStore = await cookies();
   cookieStore.set("fb_oauth_state", state, {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
     sameSite: "lax",
-    maxAge: 600, // 10 minutes
+    maxAge: 600,
+    path: "/",
+  });
+  cookieStore.set("fb_oauth_workspace_app_id", workspaceAppId, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax",
+    maxAge: 600,
     path: "/",
   });
 
-  const authUrl = buildOAuthUrl(redirectUri, state);
+  const authUrl = buildOAuthUrl(redirectUri, state, credentials);
 
   return NextResponse.redirect(authUrl);
 }

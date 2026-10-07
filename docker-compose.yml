@@ -1,0 +1,13 @@
+services:
+  app:
+    build: .
+    ports:
+      - "${PORT:-3100}:${PORT:-3100}"
+    env_file:
+      - .env
+    volumes:
+      - ./uploads:/app/uploads
+      - ./sqlite.db:/app/sqlite.db
+      - ./sqlite.db-wal:/app/sqlite.db-wal
+      - ./sqlite.db-shm:/app/sqlite.db-shm
+    restart: unless-stopped

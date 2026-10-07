@@ -7,10 +7,11 @@ import {
   type PageWithToken,
 } from "@/lib/facebook";
 import { aiLimiter, checkRateLimit } from "@/lib/rate-limit";
+import { getFacebookCredentials } from "@/lib/workspace-app";
 
 /**
  * POST /api/facebook/token/exchange
- * Body: { accessToken: string, includePages?: boolean }
+ * Body: { accessToken: string, workspaceAppId: string, includePages?: boolean }
  */
 export async function POST(request: NextRequest) {
   const session = await auth.api.getSession({
@@ -23,21 +24,33 @@ export async function POST(request: NextRequest) {
   const limited = checkRateLimit(aiLimiter, `fb-token:${session.user.id}`);
   if (limited) return limited;
 
-  if (!process.env.FACEBOOK_APP_ID || !process.env.FACEBOOK_APP_SECRET) {
-    return NextResponse.json(
-      { error: "Server chưa cấu hình Facebook App (APP_ID / APP_SECRET)." },
-      { status: 500 }
-    );
-  }
-
-  let body: { accessToken?: string; includePages?: boolean };
+  let body: {
+    accessToken?: string;
+    workspaceAppId?: string;
+    includePages?: boolean;
+  };
   try {
     body = await request.json();
   } catch {
     return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
   }
 
-  const { accessToken, includePages = true } = body;
+  const { accessToken, workspaceAppId, includePages = true } = body;
+
+  if (!workspaceAppId?.trim()) {
+    return NextResponse.json(
+      { error: "Chọn App (workspaceAppId) để dùng App ID / Secret." },
+      { status: 400 }
+    );
+  }
+
+  let credentials;
+  try {
+    credentials = await getFacebookCredentials(workspaceAppId.trim(), session.user.id);
+  } catch {
+    return NextResponse.json({ error: "App không hợp lệ." }, { status: 404 });
+  }
+
   if (
     !accessToken ||
     typeof accessToken !== "string" ||
@@ -50,14 +63,16 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const exchanged = await exchangeForLongLivedUserToken(accessToken);
+    const exchanged = await exchangeForLongLivedUserToken(
+      accessToken,
+      credentials
+    );
 
     let pages: PageWithToken[] = [];
     if (includePages) {
       try {
         pages = await getUserPages(exchanged.accessToken);
       } catch {
-        // User token may be valid but missing pages_show_list scope
         pages = [];
       }
     }

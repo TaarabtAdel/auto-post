@@ -5,7 +5,8 @@ import { db } from "@/lib/db";
 import { facebookPage } from "@/db/schema/facebook-page";
 import { eq, and } from "drizzle-orm";
 import { verifyPageToken } from "@/lib/facebook";
-import { decrypt, encrypt } from "@/lib/crypto";
+import { decryptPageToken, encrypt } from "@/lib/crypto";
+import { getWorkspaceAppForUser } from "@/lib/workspace-app";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -36,18 +37,18 @@ export async function GET(_request: NextRequest, { params }: Params) {
     return NextResponse.json({ error: "Page không tồn tại." }, { status: 404 });
   }
 
-  try {
-    const accessToken = decrypt(rows[0].encryptedToken);
-    return NextResponse.json({
-      accessToken,
-      pageName: rows[0].pageName,
-    });
-  } catch {
+  const decoded = decryptPageToken(rows[0].encryptedToken);
+  if (!decoded.ok) {
     return NextResponse.json(
-      { error: "Không thể đọc token đã lưu." },
-      { status: 500 }
+      { error: decoded.message, code: decoded.code },
+      { status: decoded.code === "wrong_key" ? 409 : 500 }
     );
   }
+
+  return NextResponse.json({
+    accessToken: decoded.value,
+    pageName: rows[0].pageName,
+  });
 }
 
 /**
@@ -110,7 +111,7 @@ export async function PATCH(request: NextRequest, { params }: Params) {
     return NextResponse.json({ error: "Page không tồn tại." }, { status: 404 });
   }
 
-  let body: { accessToken?: string };
+  let body: { accessToken?: string; workspaceAppId?: string };
   try {
     body = await request.json();
   } catch {
@@ -120,53 +121,72 @@ export async function PATCH(request: NextRequest, { params }: Params) {
     );
   }
 
-  const { accessToken } = body;
-  if (!accessToken || typeof accessToken !== "string") {
-    return NextResponse.json(
-      { error: "Access token là bắt buộc." },
-      { status: 400 }
+  const updates: Record<string, unknown> = {};
+
+  if (body.workspaceAppId !== undefined) {
+    const wsApp = await getWorkspaceAppForUser(
+      body.workspaceAppId.trim(),
+      session.user.id
     );
+    if (!wsApp) {
+      return NextResponse.json({ error: "App không hợp lệ." }, { status: 400 });
+    }
+    updates.workspaceAppId = wsApp.id;
   }
 
-  // Verify new token
-  let pageInfo;
-  try {
-    pageInfo = await verifyPageToken(accessToken.trim());
-  } catch (error) {
-    const message =
-      error instanceof Error ? error.message : "Không thể verify token.";
-    return NextResponse.json({ error: message }, { status: 400 });
+  if (body.accessToken !== undefined) {
+    const accessToken = body.accessToken;
+    if (!accessToken || typeof accessToken !== "string") {
+      return NextResponse.json(
+        { error: "Access token không hợp lệ." },
+        { status: 400 }
+      );
+    }
+
+    let pageInfo;
+    try {
+      pageInfo = await verifyPageToken(accessToken.trim());
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Không thể verify token.";
+      return NextResponse.json({ error: message }, { status: 400 });
+    }
+
+    if (pageInfo.pageId !== existing[0].pageId) {
+      return NextResponse.json(
+        { error: "Token mới phải thuộc cùng Facebook Page." },
+        { status: 400 }
+      );
+    }
+
+    updates.encryptedToken = encrypt(accessToken.trim());
+    updates.pageName = pageInfo.pageName;
+    updates.pageAvatar = pageInfo.pageAvatar;
+    updates.tokenStatus = "active";
   }
 
-  // Verify token is for the same page
-  if (pageInfo.pageId !== existing[0].pageId) {
-    return NextResponse.json(
-      { error: "Token mới phải thuộc cùng Facebook Page." },
-      { status: 400 }
-    );
+  if (Object.keys(updates).length === 0) {
+    return NextResponse.json({ error: "Không có thay đổi." }, { status: 400 });
   }
-
-  const encryptedToken = encrypt(accessToken.trim());
 
   await db
     .update(facebookPage)
-    .set({
-      encryptedToken,
-      pageName: pageInfo.pageName,
-      pageAvatar: pageInfo.pageAvatar,
-      tokenStatus: "active",
-    })
+    .set(updates)
     .where(
       and(eq(facebookPage.id, id), eq(facebookPage.userId, session.user.id))
     );
 
-  return NextResponse.json({
-    page: {
-      id,
-      pageId: pageInfo.pageId,
-      pageName: pageInfo.pageName,
-      pageAvatar: pageInfo.pageAvatar,
-      tokenStatus: "active",
-    },
-  });
+  const row = await db
+    .select({
+      id: facebookPage.id,
+      pageId: facebookPage.pageId,
+      pageName: facebookPage.pageName,
+      pageAvatar: facebookPage.pageAvatar,
+      tokenStatus: facebookPage.tokenStatus,
+      workspaceAppId: facebookPage.workspaceAppId,
+    })
+    .from(facebookPage)
+    .where(eq(facebookPage.id, id));
+
+  return NextResponse.json({ page: row[0] });
 }

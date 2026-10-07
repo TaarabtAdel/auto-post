@@ -6,16 +6,25 @@ const FETCH_TIMEOUT = 10_000; // 10s
 const FB_OAUTH_BASE = `https://www.facebook.com/${GRAPH_API_VERSION}/dialog/oauth`;
 const FB_OAUTH_TOKEN = `${GRAPH_API_BASE}/oauth/access_token`;
 
+export interface FacebookAppCredentials {
+  appId: string;
+  appSecret: string;
+}
+
 /**
  * Build Facebook OAuth authorization URL.
  * Scopes: pages_manage_posts (to publish), pages_read_engagement (to read page info)
  */
-export function buildOAuthUrl(redirectUri: string, state: string): string {
+export function buildOAuthUrl(
+  redirectUri: string,
+  state: string,
+  credentials: FacebookAppCredentials
+): string {
   const params = new URLSearchParams({
-    client_id: process.env.FACEBOOK_APP_ID || "",
+    client_id: credentials.appId,
     redirect_uri: redirectUri,
     state,
-    scope: "pages_manage_posts,pages_read_engagement",
+    scope: "pages_manage_posts,pages_read_engagement,pages_manage_engagement",
     response_type: "code",
   });
   return `${FB_OAUTH_BASE}?${params.toString()}`;
@@ -26,11 +35,12 @@ export function buildOAuthUrl(redirectUri: string, state: string): string {
  */
 export async function exchangeCodeForToken(
   code: string,
-  redirectUri: string
+  redirectUri: string,
+  credentials: FacebookAppCredentials
 ): Promise<string> {
   const params = new URLSearchParams({
-    client_id: process.env.FACEBOOK_APP_ID || "",
-    client_secret: process.env.FACEBOOK_APP_SECRET || "",
+    client_id: credentials.appId,
+    client_secret: credentials.appSecret,
     redirect_uri: redirectUri,
     code,
   });
@@ -55,16 +65,17 @@ export interface LongLivedUserTokenResult {
  * Exchange short-lived user token for long-lived user token (~60 days).
  */
 export async function exchangeForLongLivedUserToken(
-  shortLivedToken: string
+  shortLivedToken: string,
+  credentials: FacebookAppCredentials
 ): Promise<LongLivedUserTokenResult> {
-  if (!process.env.FACEBOOK_APP_ID || !process.env.FACEBOOK_APP_SECRET) {
-    throw new Error("Thiếu FACEBOOK_APP_ID hoặc FACEBOOK_APP_SECRET trong cấu hình.");
+  if (!credentials.appId || !credentials.appSecret) {
+    throw new Error("Thiếu Facebook App ID hoặc App Secret.");
   }
 
   const params = new URLSearchParams({
     grant_type: "fb_exchange_token",
-    client_id: process.env.FACEBOOK_APP_ID,
-    client_secret: process.env.FACEBOOK_APP_SECRET,
+    client_id: credentials.appId,
+    client_secret: credentials.appSecret,
     fb_exchange_token: shortLivedToken.trim(),
   });
 
@@ -101,9 +112,10 @@ export async function exchangeForLongLivedUserToken(
 }
 
 export async function exchangeForLongLivedToken(
-  shortLivedToken: string
+  shortLivedToken: string,
+  credentials: FacebookAppCredentials
 ): Promise<string> {
-  const result = await exchangeForLongLivedUserToken(shortLivedToken);
+  const result = await exchangeForLongLivedUserToken(shortLivedToken, credentials);
   return result.accessToken;
 }
 
@@ -204,6 +216,66 @@ export interface PublishResult {
   fbPostId?: string;
   error?: string;
   tokenExpired?: boolean;
+}
+
+export interface CommentResult {
+  success: boolean;
+  fbCommentId?: string;
+  error?: string;
+  tokenExpired?: boolean;
+}
+
+/**
+ * Comment on a Page post as the Page.
+ * POST /{post-id}/comments
+ */
+export async function publishPostComment(
+  token: string,
+  fbPostId: string,
+  message: string
+): Promise<CommentResult> {
+  const url = `${GRAPH_API_BASE}/${encodeURIComponent(fbPostId)}/comments`;
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 30_000);
+
+  try {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        message,
+        access_token: token,
+      }),
+      signal: controller.signal,
+    });
+
+    const data = await res.json();
+
+    if (data.error) {
+      const err = data.error as FacebookApiError;
+      return {
+        success: false,
+        error: err.message || "Facebook API error",
+        tokenExpired: err.code === 190,
+      };
+    }
+
+    return {
+      success: true,
+      fbCommentId: data.id as string | undefined,
+    };
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      return { success: false, error: "Facebook API timeout (comment)" };
+    }
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Unknown error",
+    };
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 /**

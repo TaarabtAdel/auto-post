@@ -1,6 +1,8 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
+import type { WorkspaceAppOption } from "@/components/add-page-form";
 
 interface PageTokenRow {
   pageId: string;
@@ -19,7 +21,12 @@ async function copyText(text: string) {
   await navigator.clipboard.writeText(text);
 }
 
-export function TokenRenewForm() {
+interface Props {
+  apps: WorkspaceAppOption[];
+}
+
+export function TokenRenewForm({ apps }: Props) {
+  const [workspaceAppId, setWorkspaceAppId] = useState(apps[0]?.id ?? "");
   const [token, setToken] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -36,6 +43,11 @@ export function TokenRenewForm() {
     setError("");
     setResult(null);
 
+    if (!workspaceAppId) {
+      setError("Chọn App để dùng App Secret.");
+      return;
+    }
+
     if (!token.trim()) {
       setError("Vui lòng dán User Access Token.");
       return;
@@ -46,7 +58,11 @@ export function TokenRenewForm() {
       const res = await fetch("/api/facebook/token/exchange", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ accessToken: token.trim(), includePages: true }),
+        body: JSON.stringify({
+          accessToken: token.trim(),
+          workspaceAppId,
+          includePages: true,
+        }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -71,10 +87,38 @@ export function TokenRenewForm() {
     }
   }
 
+  if (apps.length === 0) {
+    return (
+      <div className="bg-amber-50 border border-amber-200 rounded-lg p-6 text-sm text-amber-900">
+        Tạo{" "}
+        <Link href="/apps" className="font-medium text-blue-700 hover:underline">
+          Facebook App
+        </Link>{" "}
+        trước khi gia hạn token.
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       <div className="bg-white rounded-lg border border-gray-200 p-6">
         <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Chọn App *
+            </label>
+            <select
+              value={workspaceAppId}
+              onChange={(e) => setWorkspaceAppId(e.target.value)}
+              className="w-full max-w-md px-3 py-2 border border-gray-300 rounded-md text-sm"
+            >
+              {apps.map((app) => (
+                <option key={app.id} value={app.id}>
+                  {app.name} (ID {app.facebookAppId})
+                </option>
+              ))}
+            </select>
+          </div>
           <div>
             <label
               htmlFor="user-token"
