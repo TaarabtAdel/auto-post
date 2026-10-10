@@ -5,7 +5,10 @@ import { eq, and, lte, asc, inArray, isNotNull } from "drizzle-orm";
 import { randomBytes } from "crypto";
 import { publishPostById } from "@/lib/publish-post";
 import { cronLog } from "@/lib/cron-log";
-import { getFacebookPageIdsForPost } from "@/lib/post-pages";
+import {
+  getFacebookPageIdsForPost,
+  refreshPostAggregateStatus,
+} from "@/lib/post-pages";
 
 const STALE_PROCESSING_MS = 3 * 60 * 1000;
 
@@ -229,7 +232,26 @@ export async function repairPublishQueue(): Promise<void> {
       )
       .limit(1);
     if (active.length === 0) {
-      await db.update(post).set({ status: "queued" }).where(eq(post.id, row.id));
+      await refreshPostAggregateStatus(row.id);
+    }
+  }
+
+  const queuedWithDoneJobs = await db
+    .select({ id: post.id })
+    .from(post)
+    .where(inArray(post.status, ["queued", "scheduled", "posting"]));
+
+  for (const row of queuedWithDoneJobs) {
+    const jobs = await db
+      .select({ status: publishQueue.status })
+      .from(publishQueue)
+      .where(eq(publishQueue.postId, row.id));
+    if (jobs.length === 0) continue;
+    const allDone = jobs.every(
+      (j) => j.status === "completed" || j.status === "failed"
+    );
+    if (allDone) {
+      await refreshPostAggregateStatus(row.id);
     }
   }
 }
@@ -355,6 +377,8 @@ export async function processPublishQueueTick(): Promise<void> {
       batchId: job.batchId,
     });
   }
+
+  await refreshPostAggregateStatus(job.postId);
 }
 
 export async function enqueuePostsForBatch(
