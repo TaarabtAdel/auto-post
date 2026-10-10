@@ -8,6 +8,11 @@ import { eq, and, desc, inArray } from "drizzle-orm";
 import { randomBytes } from "crypto";
 import { postsLimiter, checkRateLimit } from "@/lib/rate-limit";
 import { uploadMediaPublicUrl } from "@/lib/upload-media-url";
+import {
+  loadPostPagesDisplay,
+  replacePostFacebookPages,
+  validateUserPageIds,
+} from "@/lib/post-pages";
 
 interface MediaInput {
   filePath: string;
@@ -68,9 +73,14 @@ export async function GET() {
 
   const pageMap = Object.fromEntries(pages.map((p) => [p.id, p.pageName]));
 
-  const result = posts.map((p) => ({
+  const pagesByPost = await loadPostPagesDisplay(postIds, session.user.id);
+
+  const result = posts.map((p) => {
+    const postPages = pagesByPost.get(p.id) ?? [];
+    return {
     ...p,
-    pageName: p.facebookPageId ? pageMap[p.facebookPageId] || null : null,
+    pages: postPages,
+    pageName: postPages[0]?.pageName ?? (p.facebookPageId ? pageMap[p.facebookPageId] || null : null),
     media: allMedia
       .filter((m) => m.postId === p.id)
       .sort((a, b) => a.sortOrder - b.sortOrder)
@@ -83,7 +93,8 @@ export async function GET() {
         mimeType: m.mimeType,
         url: uploadMediaPublicUrl(m.filePath),
       })),
-  }));
+  };
+  });
 
   return NextResponse.json({ posts: result });
 }
@@ -105,6 +116,7 @@ export async function POST(request: NextRequest) {
     content?: string;
     firstComment?: string;
     facebookPageId?: string;
+    facebookPageIds?: string[];
     media?: MediaInput[];
   };
   try {
@@ -116,8 +128,19 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const { content = "", firstComment: rawFirstComment, facebookPageId, media = [] } =
-    body;
+  const {
+    content = "",
+    firstComment: rawFirstComment,
+    facebookPageId,
+    facebookPageIds: rawPageIds,
+    media = [],
+  } = body;
+  const pageIdsFromBody =
+    rawPageIds && rawPageIds.length > 0
+      ? [...new Set(rawPageIds.filter(Boolean))]
+      : facebookPageId
+        ? [facebookPageId]
+        : [];
   const firstComment = (rawFirstComment ?? "").trim() || null;
 
   // Input validation
@@ -142,22 +165,13 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // Validate facebookPageId if provided
-  if (facebookPageId) {
-    const page = await db
-      .select({ id: facebookPage.id })
-      .from(facebookPage)
-      .where(
-        and(
-          eq(facebookPage.id, facebookPageId),
-          eq(facebookPage.userId, session.user.id)
-        )
-      );
-    if (page.length === 0) {
-      return NextResponse.json(
-        { error: "Facebook Page không tồn tại." },
-        { status: 400 }
-      );
+  if (pageIdsFromBody.length > 0) {
+    const validated = await validateUserPageIds(
+      session.user.id,
+      pageIdsFromBody
+    );
+    if (!validated.ok) {
+      return NextResponse.json({ error: validated.error }, { status: 400 });
     }
   }
 
@@ -166,11 +180,15 @@ export async function POST(request: NextRequest) {
   await db.insert(post).values({
     id: postId,
     userId: session.user.id,
-    facebookPageId: facebookPageId || null,
+    facebookPageId: pageIdsFromBody[0] || null,
     content,
     firstComment,
     status: "draft",
   });
+
+  if (pageIdsFromBody.length > 0) {
+    await replacePostFacebookPages(postId, pageIdsFromBody);
+  }
 
   // Insert media
   for (let i = 0; i < media.length; i++) {
@@ -191,7 +209,8 @@ export async function POST(request: NextRequest) {
     post: {
       id: postId,
       content,
-      facebookPageId: facebookPageId || null,
+      facebookPageId: pageIdsFromBody[0] || null,
+      facebookPageIds: pageIdsFromBody,
       status: "draft",
       media: media.map((m, i) => ({
         ...m,

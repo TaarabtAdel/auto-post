@@ -9,6 +9,7 @@ import { eq, desc, inArray } from "drizzle-orm";
 import Link from "next/link";
 import { PostFilters } from "@/components/post-filters";
 import { drainPublishQueue } from "@/lib/publish-queue-processor";
+import { loadPostPagesDisplay } from "@/lib/post-pages";
 
 export const metadata: Metadata = {
   title: "Bài viết",
@@ -68,7 +69,10 @@ export default async function PostsPage() {
     .from(workspaceApp)
     .where(eq(workspaceApp.userId, session!.user.id));
 
-  const pageMap = Object.fromEntries(
+  const appMap = Object.fromEntries(apps.map((a) => [a.id, a.name]));
+  const pagesByPost = await loadPostPagesDisplay(postIds, session!.user.id);
+
+  const pageMetaById = Object.fromEntries(
     pages.map((p) => [
       p.id,
       {
@@ -78,25 +82,26 @@ export default async function PostsPage() {
       },
     ])
   );
-  const appMap = Object.fromEntries(apps.map((a) => [a.id, a.name]));
 
   // Prepare data for client component
   const postsWithMeta = posts.map((p) => {
     const postMediaItems = mediaList.filter((m) => m.postId === p.id);
+    const postPages = pagesByPost.get(p.id) ?? [];
+    const primaryPageId =
+      postPages[0]?.facebookPageId ?? p.facebookPageId ?? null;
+    const workspaceAppId = primaryPageId
+      ? pageMetaById[primaryPageId]?.workspaceAppId ?? null
+      : null;
+
     return {
       ...p,
       createdAt: p.createdAt instanceof Date ? p.createdAt.toISOString() : p.createdAt,
       scheduledAt: p.scheduledAt instanceof Date ? p.scheduledAt.toISOString() : p.scheduledAt,
       postedAt: p.postedAt instanceof Date ? p.postedAt.toISOString() : p.postedAt,
-      pageName: p.facebookPageId
-        ? pageMap[p.facebookPageId]?.pageName ?? null
-        : null,
-      graphPageId: p.facebookPageId
-        ? pageMap[p.facebookPageId]?.graphPageId ?? null
-        : null,
-      workspaceAppName: p.facebookPageId
-        ? appMap[pageMap[p.facebookPageId]?.workspaceAppId ?? ""] ?? null
-        : null,
+      pages: postPages,
+      pageName: postPages[0]?.pageName ?? null,
+      graphPageId: postPages[0]?.graphPageId ?? null,
+      workspaceAppName: workspaceAppId ? appMap[workspaceAppId] ?? null : null,
       fbPostId: p.fbPostId,
       imageCount: postMediaItems.filter((m) => m.fileType === "image").length,
       videoCount: postMediaItems.filter((m) => m.fileType === "video").length,

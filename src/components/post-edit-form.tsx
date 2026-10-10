@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { describeDeleteImpact } from "@/lib/post-delete-impact";
 
 interface MediaItem {
@@ -32,6 +32,7 @@ interface PostDetail {
   firstComment: string | null;
   status: string;
   facebookPageId: string | null;
+  facebookPageIds: string[];
   scheduledAt: string | null;
   pageName: string | null;
   media: MediaItem[];
@@ -45,8 +46,28 @@ interface AppOption {
 interface PageOption {
   id: string;
   pageName: string;
+  pageAvatar: string | null;
   tokenStatus: string;
   workspaceAppId: string | null;
+}
+
+interface EditableMedia {
+  filePath: string;
+  fileName: string;
+  fileSize: number;
+  mimeType: string;
+  fileType: string;
+  url: string;
+}
+
+function mediaToPayload(m: EditableMedia) {
+  return {
+    filePath: m.filePath,
+    fileName: m.fileName,
+    fileSize: m.fileSize,
+    mimeType: m.mimeType,
+    fileType: m.fileType,
+  };
 }
 
 interface Props {
@@ -73,12 +94,29 @@ function toLocalDatetimeValue(iso: string | null): string {
 
 export function PostEditForm({ post, apps, batchSiblings }: Props) {
   const router = useRouter();
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [content, setContent] = useState(post.content);
   const [firstComment, setFirstComment] = useState(post.firstComment ?? "");
   const [scheduledAt, setScheduledAt] = useState(toLocalDatetimeValue(post.scheduledAt));
   const [workspaceAppId, setWorkspaceAppId] = useState("");
   const [facebookPageId, setFacebookPageId] = useState(post.facebookPageId ?? "");
   const [allPages, setAllPages] = useState<PageOption[]>([]);
+  const [selectedPageIds, setSelectedPageIds] = useState<Set<string>>(() => {
+    if (post.facebookPageIds.length > 0) return new Set(post.facebookPageIds);
+    if (post.facebookPageId) return new Set([post.facebookPageId]);
+    return new Set();
+  });
+  const [media, setMedia] = useState<EditableMedia[]>(() =>
+    post.media.map((m) => ({
+      filePath: m.filePath,
+      fileName: m.fileName,
+      fileSize: m.fileSize,
+      mimeType: m.mimeType,
+      fileType: m.fileType,
+      url: m.url,
+    }))
+  );
+  const [uploading, setUploading] = useState(false);
   const [extraPageIds, setExtraPageIds] = useState<Set<string>>(() => new Set());
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -113,7 +151,79 @@ export function PostEditForm({ post, apps, batchSiblings }: Props) {
   );
 
   const otherPages = appPages.filter((p) => p.id !== facebookPageId);
-  const canCloneToMore = otherPages.length > 0 && (editable || isPosted);
+  const canCloneToMore = otherPages.length > 0 && isPosted;
+
+  const allPagesSelected =
+    appPages.length > 0 && selectedPageIds.size === appPages.length;
+  const somePagesSelected =
+    selectedPageIds.size > 0 && selectedPageIds.size < appPages.length;
+
+  function togglePage(id: string) {
+    setSelectedPageIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        if (next.size <= 1) return prev;
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  }
+
+  function toggleSelectAllPages() {
+    if (allPagesSelected) {
+      const keep = appPages[0]?.id;
+      setSelectedPageIds(keep ? new Set([keep]) : new Set());
+    } else {
+      setSelectedPageIds(new Set(appPages.map((p) => p.id)));
+    }
+  }
+
+  async function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    setUploading(true);
+    setError("");
+
+    for (const file of Array.from(files)) {
+      const formData = new FormData();
+      formData.append("file", file);
+
+      try {
+        const res = await fetch("/api/uploads", {
+          method: "POST",
+          body: formData,
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          setError(data.error || "Upload thất bại.");
+          continue;
+        }
+        setMedia((prev) => [
+          ...prev,
+          {
+            filePath: data.filePath,
+            fileName: data.fileName,
+            fileSize: data.fileSize,
+            mimeType: data.mimeType,
+            fileType: data.fileType,
+            url: data.url,
+          },
+        ]);
+      } catch {
+        setError("Upload thất bại. Vui lòng thử lại.");
+      }
+    }
+
+    setUploading(false);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  }
+
+  function removeMedia(index: number) {
+    setMedia((prev) => prev.filter((_, i) => i !== index));
+  }
 
   function toggleExtra(id: string) {
     setExtraPageIds((prev) => {
@@ -141,15 +251,26 @@ export function PostEditForm({ post, apps, batchSiblings }: Props) {
   async function handleSave(e: React.FormEvent) {
     e.preventDefault();
     if (!editable) return;
+    if (selectedPageIds.size === 0) {
+      setError("Chọn ít nhất một Fanpage.");
+      return;
+    }
+    const trimmed = content.trim();
+    if (!trimmed && media.length === 0) {
+      setError("Nhập nội dung hoặc thêm ảnh/video.");
+      return;
+    }
+
     setLoading(true);
     setError("");
     setSuccess("");
 
     try {
       const payload: Record<string, unknown> = {
-        content: content.trim(),
+        content: trimmed,
         firstComment: firstComment.trim() || null,
-        facebookPageId: facebookPageId || null,
+        facebookPageIds: [...selectedPageIds],
+        media: media.map(mediaToPayload),
       };
       if (scheduledAt) {
         payload.scheduledAt = new Date(scheduledAt).toISOString();
@@ -165,11 +286,8 @@ export function PostEditForm({ post, apps, batchSiblings }: Props) {
         setError(data.error || "Không thể lưu.");
         return;
       }
-      setSuccess(
-        batchSiblings.length > 0
-          ? "Đã lưu — chỉ áp dụng cho Fanpage này, không đổi các Fanpage khác trong cùng đợt."
-          : "Đã lưu bài viết."
-      );
+
+      setSuccess("Đã lưu bài viết.");
       router.refresh();
     } catch {
       setError("Lỗi kết nối.");
@@ -198,13 +316,7 @@ export function PostEditForm({ post, apps, batchSiblings }: Props) {
           firstComment: firstComment.trim() || undefined,
           scheduledAt: new Date(scheduledAt).toISOString(),
           facebookPageIds: [...extraPageIds],
-          media: post.media.map((m) => ({
-            filePath: m.filePath,
-            fileName: m.fileName,
-            fileSize: m.fileSize,
-            mimeType: m.mimeType,
-            fileType: m.fileType,
-          })),
+          media: media.map(mediaToPayload),
         }),
       });
       const data = await res.json();
@@ -213,7 +325,7 @@ export function PostEditForm({ post, apps, batchSiblings }: Props) {
         return;
       }
       setSuccess(
-        `Đã tạo ${data.pageCount} bài mới (hàng đợi). Bài đã đăng trên Fanpage hiện tại không bị sửa.`
+        `Đã tạo 1 bài mới cho ${data.pageCount} Fanpage (hàng đợi). Bài đã đăng không bị sửa.`
       );
       router.push("/posts");
       router.refresh();
@@ -256,9 +368,8 @@ export function PostEditForm({ post, apps, batchSiblings }: Props) {
         <p className="font-medium">Cách AutoPost xử lý sửa / xóa</p>
         <ul className="list-disc pl-5 space-y-1 text-slate-700 text-xs">
           <li>
-            <strong>Mỗi Fanpage = một bản ghi riêng.</strong> Sửa Page, nội dung, giờ đăng
-            chỉ ảnh hưởng <strong>bài này</strong>, không đổi các Fanpage khác (kể cả cùng
-            lúc lên lịch batch).
+            <strong>Một bài = nhiều Fanpage.</strong> Tick chọn Page trên cùng một bản ghi;
+            hệ thống đăng lần lượt từng Page khi đến giờ.
           </li>
           <li>
             <strong>Đã đăng lên Facebook:</strong> không sửa được bài live trên FB từ đây. Muốn
@@ -334,8 +445,8 @@ export function PostEditForm({ post, apps, batchSiblings }: Props) {
 
         {editable && (
           <p className="text-xs text-blue-800 bg-blue-50 px-3 py-2 rounded-md">
-            Đổi Fanpage bên dưới = chuyển <strong>bài chờ đăng này</strong> sang Page khác, không
-            tạo thêm bài trên Page cũ.
+            Chọn tất cả Fanpage cần đăng — vẫn là <strong>một</strong> bài trong danh sách
+            /posts.
           </p>
         )}
 
@@ -344,12 +455,19 @@ export function PostEditForm({ post, apps, batchSiblings }: Props) {
           <select
             value={workspaceAppId}
             onChange={(e) => {
-              setWorkspaceAppId(e.target.value);
-              const first = allPages.find(
-                (p) =>
-                  p.workspaceAppId === e.target.value && p.tokenStatus === "active"
+              const appId = e.target.value;
+              setWorkspaceAppId(appId);
+              const inApp = allPages.filter(
+                (p) => p.tokenStatus === "active" && p.workspaceAppId === appId
               );
-              if (first) setFacebookPageId(first.id);
+              setSelectedPageIds((prev) => {
+                const next = new Set([...prev].filter((id) => inApp.some((p) => p.id === id)));
+                if (next.size === 0 && inApp[0]) next.add(inApp[0].id);
+                return next;
+              });
+              const primary =
+                inApp.find((p) => p.id === facebookPageId) ?? inApp[0];
+              if (primary) setFacebookPageId(primary.id);
             }}
             disabled={!editable}
             className="w-full max-w-md px-3 py-2 border border-gray-300 rounded-lg text-sm disabled:opacity-60"
@@ -363,21 +481,69 @@ export function PostEditForm({ post, apps, batchSiblings }: Props) {
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
-            Fanpage cho bài này
+          <label className="block text-sm font-medium text-gray-700 mb-2">
+            {editable ? "Fanpage đăng bài" : "Fanpage của bài này"}
           </label>
-          <select
-            value={facebookPageId}
-            onChange={(e) => setFacebookPageId(e.target.value)}
-            disabled={!editable}
-            className="w-full max-w-md px-3 py-2 border border-gray-300 rounded-lg text-sm disabled:opacity-60"
-          >
-            {appPages.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.pageName}
-              </option>
-            ))}
-          </select>
+          {editable ? (
+            appPages.length === 0 ? (
+              <p className="text-sm text-gray-500">
+                App này chưa có Page active.{" "}
+                <Link href="/pages" className="text-blue-600 hover:underline">
+                  Kết nối Page
+                </Link>
+              </p>
+            ) : (
+              <>
+                <div className="border border-gray-100 rounded-lg divide-y divide-gray-100 max-w-xl">
+                  <label className="flex items-center gap-3 px-4 py-3 bg-gray-50 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={allPagesSelected}
+                      ref={(el) => {
+                        if (el) el.indeterminate = somePagesSelected;
+                      }}
+                      onChange={toggleSelectAllPages}
+                      className="rounded border-gray-300"
+                    />
+                    <span className="text-sm font-medium text-gray-800">
+                      Chọn tất cả ({appPages.length} Fanpage)
+                    </span>
+                  </label>
+                  {appPages.map((p) => (
+                    <label
+                      key={p.id}
+                      className="flex items-center gap-3 px-4 py-3 cursor-pointer hover:bg-gray-50/80"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={selectedPageIds.has(p.id)}
+                        onChange={() => togglePage(p.id)}
+                        className="rounded border-gray-300"
+                      />
+                      {p.pageAvatar ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={p.pageAvatar}
+                          alt=""
+                          className="w-8 h-8 rounded-full"
+                        />
+                      ) : (
+                        <div className="w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center text-xs font-medium">
+                          {p.pageName.charAt(0)}
+                        </div>
+                      )}
+                      <span className="text-sm text-gray-900">{p.pageName}</span>
+                    </label>
+                  ))}
+                </div>
+                <p className="text-xs text-gray-500 mt-2">
+                  Đã chọn {selectedPageIds.size} / {appPages.length} Fanpage.
+                </p>
+              </>
+            )
+          ) : (
+            <p className="text-sm text-gray-800">{post.pageName ?? "—"}</p>
+          )}
         </div>
 
         <div>
@@ -415,47 +581,60 @@ export function PostEditForm({ post, apps, batchSiblings }: Props) {
           />
         </div>
 
-        {post.media.length > 0 && (
+        {(editable || canCloneToMore) && (
           <div>
-            <p className="text-sm font-medium text-gray-700 mb-2">Media (giữ nguyên file)</p>
-            <ul className="space-y-3">
-              {post.media.map((m) => (
-                <li
-                  key={m.id}
-                  className="flex flex-wrap items-start gap-3 text-xs text-gray-600 border border-gray-100 rounded-lg p-3"
-                >
+            <label className="block text-sm font-medium text-gray-700 mb-2">Ảnh / Video</label>
+            <div className="flex flex-wrap gap-3 mb-4">
+              {media.map((m, i) => (
+                <div key={`${m.filePath}-${i}`} className="relative group border rounded-lg overflow-hidden">
                   {m.fileType === "image" ? (
                     // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      src={m.url}
-                      alt={m.fileName}
-                      className="w-28 h-28 object-cover rounded-md border border-gray-200 shrink-0"
-                    />
+                    <img src={m.url} alt={m.fileName} className="w-24 h-24 object-cover" />
                   ) : (
                     <video
                       src={m.url}
-                      controls
-                      className="max-w-xs max-h-40 rounded-md border border-gray-200 bg-black shrink-0"
+                      className="w-24 h-24 object-cover bg-black"
+                      controls={editable}
+                      muted={!editable}
+                      playsInline
                       preload="metadata"
                     />
                   )}
-                  <div className="min-w-0 flex-1">
-                    <p className="font-medium text-gray-800 text-sm mb-1">{m.fileName}</p>
-                    <a
-                      href={m.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-blue-600 hover:underline break-all"
+                  {(editable || isPosted) && (
+                    <button
+                      type="button"
+                      onClick={() => removeMedia(i)}
+                      className="absolute top-1 right-1 bg-red-500 text-white rounded-full w-5 h-5 text-xs"
                     >
-                      {m.url}
-                    </a>
-                    <p className="text-[10px] text-gray-400 mt-1">
-                      File trên server: uploads/{m.filePath}
-                    </p>
-                  </div>
-                </li>
+                      ×
+                    </button>
+                  )}
+                </div>
               ))}
-            </ul>
+            </div>
+            {(editable || isPosted) && (
+              <>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/jpeg,image/png,image/gif,image/webp,video/mp4,video/quicktime"
+                  multiple
+                  onChange={handleFileUpload}
+                  className="hidden"
+                />
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={uploading || loading}
+                  className="border border-gray-300 text-gray-700 py-2 px-4 rounded-lg text-sm disabled:opacity-50"
+                >
+                  {uploading ? "Đang tải..." : "Thêm ảnh/video"}
+                </button>
+              </>
+            )}
+            {!editable && media.length === 0 && (
+              <p className="text-xs text-gray-500">Chưa có media — thêm file trước khi hẹn sang Fanpage khác.</p>
+            )}
           </div>
         )}
       </div>
@@ -528,7 +707,7 @@ export function PostEditForm({ post, apps, batchSiblings }: Props) {
               disabled={loading}
               className="bg-blue-600 text-white px-5 py-2 rounded-lg text-sm disabled:opacity-50"
             >
-              {loading ? "Đang lưu..." : "Lưu (chỉ Fanpage này)"}
+              {loading ? "Đang lưu..." : "Lưu"}
             </button>
             <button
               type="button"
@@ -543,7 +722,8 @@ export function PostEditForm({ post, apps, batchSiblings }: Props) {
                     body: JSON.stringify({
                       content: content.trim(),
                       firstComment: firstComment.trim() || null,
-                      facebookPageId: facebookPageId || null,
+                      facebookPageIds: [...selectedPageIds],
+                      media: media.map(mediaToPayload),
                       ...(scheduledAt
                         ? { scheduledAt: new Date(scheduledAt).toISOString() }
                         : {}),

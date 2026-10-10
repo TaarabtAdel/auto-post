@@ -273,10 +273,7 @@ export default function NewPostPage() {
         body: JSON.stringify({
           content: content.trim(),
           firstComment: firstComment.trim() || undefined,
-          facebookPageId:
-            selectedPageIds.size === 1
-              ? [...selectedPageIds][0]
-              : undefined,
+          facebookPageIds: [...selectedPageIds],
           media: mediaPayload(),
         }),
       });

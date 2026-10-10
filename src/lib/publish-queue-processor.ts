@@ -5,6 +5,7 @@ import { eq, and, lte, asc, inArray, isNotNull } from "drizzle-orm";
 import { randomBytes } from "crypto";
 import { publishPostById } from "@/lib/publish-post";
 import { cronLog } from "@/lib/cron-log";
+import { getFacebookPageIdsForPost } from "@/lib/post-pages";
 
 const STALE_PROCESSING_MS = 3 * 60 * 1000;
 
@@ -323,7 +324,7 @@ export async function processPublishQueueTick(): Promise<void> {
     .set({ status: "processing", startedAt: new Date(), errorMessage: null })
     .where(eq(publishQueue.id, job.id));
 
-  const result = await publishPostById(job.postId);
+  const result = await publishPostById(job.postId, job.facebookPageId);
 
   if (result.success) {
     await db
@@ -363,6 +364,7 @@ export async function enqueuePostsForBatch(
     batchId: string;
     queueOrder: number;
     scheduledAt: Date;
+    facebookPageId?: string | null;
   }[]
 ) {
   for (const item of items) {
@@ -370,12 +372,34 @@ export async function enqueuePostsForBatch(
       id: randomBytes(16).toString("hex"),
       userId: item.userId,
       postId: item.postId,
+      facebookPageId: item.facebookPageId ?? null,
       batchId: item.batchId,
       queueOrder: item.queueOrder,
       scheduledAt: item.scheduledAt,
       status: "pending",
     });
   }
+}
+
+export async function enqueueScheduledPostPages(params: {
+  userId: string;
+  postId: string;
+  batchId: string;
+  scheduledAt: Date;
+}) {
+  const pageIds = await getFacebookPageIdsForPost(params.postId);
+  if (pageIds.length === 0) return;
+
+  await enqueuePostsForBatch(
+    pageIds.map((facebookPageId, queueOrder) => ({
+      userId: params.userId,
+      postId: params.postId,
+      batchId: params.batchId,
+      queueOrder,
+      scheduledAt: params.scheduledAt,
+      facebookPageId,
+    }))
+  );
 }
 
 export async function cancelPendingQueueForPost(postId: string) {

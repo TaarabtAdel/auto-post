@@ -6,6 +6,14 @@ import { useRouter } from "next/navigation";
 import { getFacebookPostUrl } from "@/lib/facebook-page-url";
 import { describeDeleteImpact } from "@/lib/post-delete-impact";
 
+interface PostPageMeta {
+  facebookPageId: string;
+  pageName: string;
+  graphPageId: string | null;
+  fbPostId: string | null;
+  errorMessage: string | null;
+}
+
 interface PostData {
   id: string;
   content: string;
@@ -19,6 +27,7 @@ interface PostData {
   pageName: string | null;
   graphPageId: string | null;
   workspaceAppName: string | null;
+  pages: PostPageMeta[];
   imageCount: number;
   videoCount: number;
 }
@@ -63,9 +72,20 @@ function canRunNow(status: string) {
   return ["queued", "scheduled", "draft", "failed"].includes(status);
 }
 
-function postFacebookUrl(p: PostData): string | null {
-  if (p.status !== "posted" || !p.fbPostId) return null;
-  return getFacebookPostUrl(p.fbPostId, p.graphPageId);
+function firstPostedPageUrl(p: PostData): string | null {
+  const posted = p.pages.find((pg) => pg.fbPostId);
+  if (posted?.fbPostId) {
+    return getFacebookPostUrl(posted.fbPostId, posted.graphPageId);
+  }
+  if (p.status === "posted" && p.fbPostId) {
+    return getFacebookPostUrl(p.fbPostId, p.graphPageId);
+  }
+  return null;
+}
+
+function pageFacebookUrl(pg: PostPageMeta): string | null {
+  if (!pg.fbPostId) return null;
+  return getFacebookPostUrl(pg.fbPostId, pg.graphPageId);
 }
 
 export function PostFilters({
@@ -198,7 +218,7 @@ export function PostFilters({
                 <tr>
                   <th className="px-4 py-3 font-medium min-w-[200px]">Nội dung</th>
                   <th className="px-4 py-3 font-medium whitespace-nowrap">App</th>
-                  <th className="px-4 py-3 font-medium whitespace-nowrap">Page</th>
+                  <th className="px-4 py-3 font-medium whitespace-nowrap">Pages</th>
                   <th className="px-4 py-3 font-medium whitespace-nowrap">Trạng thái</th>
                   <th className="px-4 py-3 font-medium whitespace-nowrap">Hẹn / Đăng</th>
                   <th className="px-4 py-3 font-medium whitespace-nowrap">Media</th>
@@ -211,7 +231,21 @@ export function PostFilters({
                 {filtered.map((p) => {
                   const statusInfo =
                     STATUS_LABELS[p.status] || STATUS_LABELS.draft;
-                  const fbUrl = postFacebookUrl(p);
+                  const fbUrl = firstPostedPageUrl(p);
+                  const pageList =
+                    p.pages.length > 0
+                      ? p.pages
+                      : p.pageName
+                        ? [
+                            {
+                              facebookPageId: p.facebookPageId ?? "",
+                              pageName: p.pageName,
+                              graphPageId: p.graphPageId,
+                              fbPostId: p.fbPostId,
+                              errorMessage: null,
+                            },
+                          ]
+                        : [];
                   const timeLabel =
                     p.status === "posted" && p.postedAt
                       ? formatDate(p.postedAt)
@@ -255,19 +289,32 @@ export function PostFilters({
                           </span>
                         )}
                       </td>
-                      <td className="px-4 py-3 whitespace-nowrap">
-                        {fbUrl && p.pageName ? (
-                          <a
-                            href={fbUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-blue-600 hover:underline"
-                            title="Mở bài viết trên Facebook"
-                          >
-                            {p.pageName}
-                          </a>
+                      <td className="px-4 py-3 min-w-[140px]">
+                        {pageList.length === 0 ? (
+                          <span className="text-gray-500">—</span>
                         ) : (
-                          <span className="text-gray-800">{p.pageName || "—"}</span>
+                          <ul className="space-y-1">
+                            {pageList.map((pg) => {
+                              const url = pageFacebookUrl(pg);
+                              return (
+                                <li key={pg.facebookPageId || pg.pageName}>
+                                  {url ? (
+                                    <a
+                                      href={url}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="text-blue-600 hover:underline text-xs"
+                                      title="Mở bài trên Facebook"
+                                    >
+                                      {pg.pageName}
+                                    </a>
+                                  ) : (
+                                    <span className="text-gray-800 text-xs">{pg.pageName}</span>
+                                  )}
+                                </li>
+                              );
+                            })}
+                          </ul>
                         )}
                       </td>
                       <td className="px-4 py-3 whitespace-nowrap">

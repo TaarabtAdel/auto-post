@@ -6,6 +6,7 @@ import { post, postMedia } from "@/db/schema/post";
 import { facebookPage } from "@/db/schema/facebook-page";
 import { eq, and } from "drizzle-orm";
 import { getBatchSiblings } from "@/lib/post-batch";
+import { getFacebookPageIdsForPost } from "@/lib/post-pages";
 import { getFacebookPostUrl } from "@/lib/facebook-page-url";
 import { notFound } from "next/navigation";
 import { listWorkspaceApps } from "@/lib/workspace-app";
@@ -46,6 +47,8 @@ export default async function EditPostPage({ params }: Props) {
 
   const apps = await listWorkspaceApps(session!.user.id);
 
+  const facebookPageIds = await getFacebookPageIdsForPost(id);
+
   const batchSiblings = await getBatchSiblings(
     session!.user.id,
     p.batchId,
@@ -69,6 +72,7 @@ export default async function EditPostPage({ params }: Props) {
           firstComment: p.firstComment,
           status: p.status,
           facebookPageId: p.facebookPageId,
+          facebookPageIds,
           scheduledAt:
             p.scheduledAt instanceof Date
               ? p.scheduledAt.toISOString()
