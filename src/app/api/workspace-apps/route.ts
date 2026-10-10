@@ -4,7 +4,11 @@ import { headers } from "next/headers";
 import { db } from "@/lib/db";
 import { workspaceApp } from "@/db/schema/workspace-app";
 import { eq } from "drizzle-orm";
-import { encryptAppSecret, listWorkspaceApps } from "@/lib/workspace-app";
+import {
+  encryptAppSecret,
+  encryptUserAccessToken,
+  listWorkspaceApps,
+} from "@/lib/workspace-app";
 import { randomBytes } from "crypto";
 
 export async function GET() {
@@ -28,6 +32,7 @@ export async function POST(request: NextRequest) {
     description?: string;
     facebookAppId?: string;
     facebookAppSecret?: string;
+    userAccessToken?: string;
   };
   try {
     body = await request.json();
@@ -58,6 +63,8 @@ export async function POST(request: NextRequest) {
 
   const id = randomBytes(16).toString("hex");
 
+  const userAccessToken = body.userAccessToken?.trim();
+
   await db.insert(workspaceApp).values({
     id,
     userId: session.user.id,
@@ -65,6 +72,9 @@ export async function POST(request: NextRequest) {
     description,
     facebookAppId,
     encryptedAppSecret: encryptAppSecret(facebookAppSecret),
+    encryptedUserToken: userAccessToken
+      ? encryptUserAccessToken(userAccessToken)
+      : null,
   });
 
   return NextResponse.json({

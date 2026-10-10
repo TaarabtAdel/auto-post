@@ -4,12 +4,12 @@ import { headers } from "next/headers";
 import { db } from "@/lib/db";
 import { facebookPage } from "@/db/schema/facebook-page";
 import { eq, and } from "drizzle-orm";
-import { decryptPageToken } from "@/lib/crypto";
 import {
   getPageCountryRestrictions,
   setPageCountryRestrictions,
 } from "@/lib/facebook";
 import { isKnownCountryCode, PAGE_COUNTRY_OPTIONS } from "@/lib/page-country-options";
+import { resolvePageTokenForCountryRestrictions } from "@/lib/page-token-for-country";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -22,18 +22,11 @@ async function getOwnedPageRow(id: string, userId: string) {
       pageId: facebookPage.pageId,
       pageName: facebookPage.pageName,
       encryptedToken: facebookPage.encryptedToken,
+      workspaceAppId: facebookPage.workspaceAppId,
     })
     .from(facebookPage)
     .where(and(eq(facebookPage.id, id), eq(facebookPage.userId, userId)))
     .then((rows) => rows[0] ?? null);
-}
-
-function getPageToken(encryptedToken: string): string {
-  const dec = decryptPageToken(encryptedToken);
-  if (!dec.ok) {
-    throw new Error(dec.message);
-  }
-  return dec.value;
 }
 
 /** GET — đọc giới hạn quốc gia từ Facebook */
@@ -50,7 +43,10 @@ export async function GET(_request: NextRequest, { params }: Params) {
   }
 
   try {
-    const token = getPageToken(row.encryptedToken);
+    const { token, source } = await resolvePageTokenForCountryRestrictions(
+      row,
+      session.user.id
+    );
     const restrictions = await getPageCountryRestrictions(token, row.pageId);
     const selected = restrictions.countries.filter((c) => ALLOWED_CODES.has(c));
 
@@ -60,9 +56,9 @@ export async function GET(_request: NextRequest, { params }: Params) {
       restrictionType: restrictions.restrictionType,
       enabled: restrictions.enabled,
       countries: restrictions.countries,
-      /** Checkbox UI — mã trong danh sách UI đang bật */
       selectedCountries: selected,
       availableCountries: PAGE_COUNTRY_OPTIONS,
+      tokenSource: source,
     });
   } catch (error) {
     const msg = error instanceof Error ? error.message : "Lỗi Facebook API.";
@@ -100,17 +96,26 @@ export async function PATCH(request: NextRequest, { params }: Params) {
   const restrictionType = body.restrictionType === "blacklist" ? "blacklist" : "whitelist";
 
   try {
-    const token = getPageToken(row.encryptedToken);
+    const { token, source } = await resolvePageTokenForCountryRestrictions(
+      row,
+      session.user.id
+    );
     await setPageCountryRestrictions(token, row.pageId, restrictionType, requested);
+
+    const viaUser =
+      source === "app_user_token"
+        ? " (token Page lấy từ User token trên /apps)"
+        : "";
 
     return NextResponse.json({
       ok: true,
       message:
         requested.length === 0
-          ? "Đã gỡ giới hạn quốc gia (theo cấu hình gửi lên Facebook)."
-          : `Đã áp dụng ${restrictionType} cho: ${requested.join(", ")}.`,
+          ? `Đã gỡ giới hạn quốc gia${viaUser}.`
+          : `Đã áp dụng ${restrictionType} cho: ${requested.join(", ")}${viaUser}.`,
       countries: requested,
       restrictionType,
+      tokenSource: source,
     });
   } catch (error) {
     const msg = error instanceof Error ? error.message : "Lỗi Facebook API.";

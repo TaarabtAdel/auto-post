@@ -7,6 +7,7 @@ import { facebookPage } from "@/db/schema/facebook-page";
 import { eq, and } from "drizzle-orm";
 import {
   encryptAppSecret,
+  encryptUserAccessToken,
   getWorkspaceAppForUser,
   listWorkspaceApps,
 } from "@/lib/workspace-app";
@@ -31,6 +32,7 @@ export async function GET(_request: NextRequest, context: RouteContext) {
       name: app.name,
       description: app.description,
       facebookAppId: app.facebookAppId,
+      hasUserToken: Boolean(app.encryptedUserToken),
       createdAt: app.createdAt,
       updatedAt: app.updatedAt,
     },
@@ -54,6 +56,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     description?: string;
     facebookAppId?: string;
     facebookAppSecret?: string;
+    userAccessToken?: string | null;
   };
   try {
     body = await request.json();
@@ -88,6 +91,20 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
 
   if (body.facebookAppSecret !== undefined && body.facebookAppSecret.trim()) {
     updates.encryptedAppSecret = encryptAppSecret(body.facebookAppSecret);
+  }
+
+  if (body.userAccessToken !== undefined) {
+    const raw = body.userAccessToken;
+    if (raw === null || (typeof raw === "string" && !raw.trim())) {
+      updates.encryptedUserToken = null;
+    } else if (typeof raw === "string" && raw.trim().length >= 20) {
+      updates.encryptedUserToken = encryptUserAccessToken(raw);
+    } else {
+      return NextResponse.json(
+        { error: "User token không hợp lệ (quá ngắn)." },
+        { status: 400 }
+      );
+    }
   }
 
   if (Object.keys(updates).length === 0) {

@@ -8,6 +8,7 @@ export interface WorkspaceAppRow {
   name: string;
   description: string | null;
   facebookAppId: string;
+  hasUserToken?: boolean;
 }
 
 interface Props {
@@ -26,12 +27,16 @@ export function WorkspaceAppsManager({ initialApps }: Props) {
   const [description, setDescription] = useState("");
   const [facebookAppId, setFacebookAppId] = useState("");
   const [facebookAppSecret, setFacebookAppSecret] = useState("");
+  const [userAccessToken, setUserAccessToken] = useState("");
+  const [clearUserToken, setClearUserToken] = useState(false);
 
   function resetForm() {
     setName("");
     setDescription("");
     setFacebookAppId("");
     setFacebookAppSecret("");
+    setUserAccessToken("");
+    setClearUserToken(false);
     setEditingId(null);
   }
 
@@ -41,6 +46,8 @@ export function WorkspaceAppsManager({ initialApps }: Props) {
     setDescription(app.description || "");
     setFacebookAppId(app.facebookAppId);
     setFacebookAppSecret("");
+    setUserAccessToken("");
+    setClearUserToken(false);
     setError("");
     setSuccess("");
   }
@@ -52,14 +59,19 @@ export function WorkspaceAppsManager({ initialApps }: Props) {
     setLoading(true);
 
     try {
-      const payload = {
+      const payload: Record<string, string | null> = {
         name: name.trim(),
         description: description.trim(),
         facebookAppId: facebookAppId.trim(),
-        ...(facebookAppSecret.trim()
-          ? { facebookAppSecret: facebookAppSecret.trim() }
-          : {}),
       };
+      if (facebookAppSecret.trim()) {
+        payload.facebookAppSecret = facebookAppSecret.trim();
+      }
+      if (clearUserToken && editingId) {
+        payload.userAccessToken = null;
+      } else if (userAccessToken.trim()) {
+        payload.userAccessToken = userAccessToken.trim();
+      }
 
       const url = editingId
         ? `/api/workspace-apps/${editingId}`
@@ -209,6 +221,45 @@ export function WorkspaceAppsManager({ initialApps }: Props) {
               autoComplete="off"
             />
           </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              User Token (Graph API Explorer)
+            </label>
+            <input
+              type="password"
+              value={userAccessToken}
+              onChange={(e) => {
+                setUserAccessToken(e.target.value);
+                setClearUserToken(false);
+              }}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-mono"
+              placeholder={
+                editingId
+                  ? "Dán token mới hoặc tick xóa bên dưới"
+                  : "Tùy chọn — dùng cho giới hạn quốc gia /pages"
+              }
+              autoComplete="off"
+            />
+            <p className="mt-1 text-xs text-gray-500">
+              User access token có quyền quản trị Page. Lưu trên server (mã hóa). Khi sửa{" "}
+              <strong>Giới hạn quốc gia</strong>, hệ thống ưu tiên lấy Page token từ User token
+              này.
+            </p>
+            {editingId && (
+              <label className="mt-2 flex items-center gap-2 text-xs text-gray-600">
+                <input
+                  type="checkbox"
+                  checked={clearUserToken}
+                  onChange={(e) => {
+                    setClearUserToken(e.target.checked);
+                    if (e.target.checked) setUserAccessToken("");
+                  }}
+                  className="rounded border-gray-300"
+                />
+                Xóa User token đã lưu
+              </label>
+            )}
+          </div>
           <div className="flex gap-2">
             <button
               type="submit"
@@ -252,6 +303,11 @@ export function WorkspaceAppsManager({ initialApps }: Props) {
                   ) : null}
                   <p className="text-xs text-gray-400 mt-2 font-mono">
                     App ID: {app.facebookAppId}
+                    {app.hasUserToken ? (
+                      <span className="ml-2 text-green-700 font-sans">· đã lưu User token</span>
+                    ) : (
+                      <span className="ml-2 text-amber-700 font-sans">· chưa có User token</span>
+                    )}
                   </p>
                 </div>
                 <div className="flex gap-2 shrink-0">

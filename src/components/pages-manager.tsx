@@ -577,11 +577,22 @@ export function PagesManager({ initialPages, apps }: Props) {
       const data = await fetchCountryRestrictions(page.id);
       if (!data) return;
       setCountrySelected(new Set(data.selectedCountries ?? []));
+      const hints: string[] = [];
+      if (data.tokenSource === "app_user_token") {
+        hints.push(
+          "Token API: Page token lấy từ User token đã lưu trên /apps (ưu tiên cho giới hạn quốc gia)."
+        );
+      } else {
+        hints.push(
+          "Token API: Page token trong DB. Nếu Facebook báo thiếu quyền MANAGE, thêm User token tại /apps."
+        );
+      }
       if (data.countries?.length && !(data.selectedCountries?.length > 0)) {
-        setCountryHint(
+        hints.push(
           `Facebook đang có: ${data.restrictionType} — ${(data.countries as string[]).join(", ")} (ngoài danh sách UI).`
         );
       }
+      setCountryHint(hints.join(" "));
     } finally {
       setCountryLoadingFetch(false);
     }
