@@ -10,7 +10,10 @@ import {
   cancelPendingQueueForPost,
   enqueueScheduledPostPages,
 } from "@/lib/publish-queue-processor";
-import { getFacebookPageIdsForPost } from "@/lib/post-pages";
+import {
+  getFacebookPageIdsForPost,
+  refreshPostAggregateStatus,
+} from "@/lib/post-pages";
 import { randomBytes } from "crypto";
 
 type Params = { params: Promise<{ id: string }> };
@@ -124,6 +127,8 @@ export async function POST(_request: Request, { params }: Params) {
       }, { status: 400 });
     }
   }
+
+  await refreshPostAggregateStatus(id);
 
   const updated = await db.select().from(post).where(eq(post.id, id));
   return NextResponse.json({

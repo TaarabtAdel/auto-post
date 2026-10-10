@@ -316,13 +316,22 @@ export async function refreshPostAggregateStatus(postId: string) {
   const hasPending = jobs.some(
     (j) => j.status === "pending" || j.status === "processing"
   );
+  const completedJobs = jobs.filter((j) => j.status === "completed").length;
+  const failedJobs = jobs.filter((j) => j.status === "failed").length;
+  const allJobsFinished =
+    jobs.length > 0 &&
+    jobs.every((j) => j.status === "completed" || j.status === "failed");
 
   if (hasPending) {
     await db.update(post).set({ status: "posting" }).where(eq(post.id, postId));
     return;
   }
 
-  if (publishedCount >= total && total > 0) {
+  const allPagesPublished =
+    publishedCount >= total ||
+    (allJobsFinished && failedJobs === 0 && completedJobs >= total);
+
+  if (allPagesPublished && total > 0) {
     const firstFb = junction.find((j) => j.fbPostId)?.fbPostId ?? null;
     const warnings = junction
       .map((j) => j.errorMessage)
@@ -339,7 +348,7 @@ export async function refreshPostAggregateStatus(postId: string) {
     return;
   }
 
-  if (publishedCount === 0) {
+  if (publishedCount === 0 && !(allJobsFinished && completedJobs > 0)) {
     const failedJob = jobs.find((j) => j.status === "failed");
     const err =
       junction.find((j) => j.errorMessage)?.errorMessage ||
