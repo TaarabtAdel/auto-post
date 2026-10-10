@@ -64,6 +64,8 @@ export const authLimiter = new RateLimiter({ windowMs: 15 * 60 * 1000, max: 10 }
 export const uploadLimiter = new RateLimiter({ windowMs: 60 * 1000, max: 20 });       // 20 / min / user
 export const postsLimiter = new RateLimiter({ windowMs: 60 * 1000, max: 30 });        // 30 / min / user
 export const aiLimiter = new RateLimiter({ windowMs: 60 * 1000, max: 10 });           // 10 / min / user
+export const reelLimiter = new RateLimiter({ windowMs: 10 * 60 * 1000, max: 6 });     // 6 / 10min / user
+export const youtubeLimiter = new RateLimiter({ windowMs: 10 * 60 * 1000, max: 8 });  // 8 / 10min / user
 
 import { NextResponse } from "next/server";
 

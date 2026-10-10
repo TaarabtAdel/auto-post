@@ -2,7 +2,6 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { SignOutButton } from "./sign-out-button";
 import { useState } from "react";
 
 interface SidebarProps {
@@ -14,13 +13,21 @@ const navItems = [
   { href: "/apps", label: "Facebook Apps", icon: "📱" },
   { href: "/pages", label: "Facebook Pages", icon: "📄" },
   { href: "/pages/renew-token", label: "Gia hạn token", icon: "🔑" },
+  { href: "/youtube", label: "Tìm video YouTube", icon: "▶️" },
+  { href: "/reels", label: "Tạo Reel", icon: "🎬" },
   { href: "/posts", label: "Bài viết", icon: "📝" },
   { href: "/posts/new", label: "Tạo bài mới", icon: "✨" },
 ];
 
 function isNavActive(pathname: string, href: string): boolean {
   if (pathname === href) return true;
-  if (href === "/pages" || href === "/pages/renew-token" || href === "/apps") {
+  if (
+    href === "/pages" ||
+    href === "/pages/renew-token" ||
+    href === "/apps" ||
+    href === "/reels" ||
+    href === "/youtube"
+  ) {
     return pathname === href;
   }
   if (href === "/posts") {
@@ -100,7 +107,6 @@ export function Sidebar({ userName }: SidebarProps) {
               <p className="text-sm font-medium truncate">{userName}</p>
             </div>
           </div>
-          <SignOutButton />
         </div>
       </aside>
     </>
