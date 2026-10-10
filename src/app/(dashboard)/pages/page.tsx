@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { facebookPage } from "@/db/schema/facebook-page";
 import { workspaceApp } from "@/db/schema/workspace-app";
 import { post } from "@/db/schema/post";
+import { postFacebookPage } from "@/db/schema/post-page";
 import { eq } from "drizzle-orm";
 import { OAuthMessage } from "@/components/oauth-message";
 import { listWorkspaceApps } from "@/lib/workspace-app";
@@ -42,16 +43,16 @@ export default async function PagesPage() {
     listWorkspaceApps(userId),
     db
       .select({
-        facebookPageId: post.facebookPageId,
+        facebookPageId: postFacebookPage.facebookPageId,
         status: post.status,
       })
-      .from(post)
+      .from(postFacebookPage)
+      .innerJoin(post, eq(postFacebookPage.postId, post.id))
       .where(eq(post.userId, userId)),
   ]);
 
   const statsByPage = new Map<string, { posted: number; pending: number }>();
   for (const p of allPosts) {
-    if (!p.facebookPageId) continue;
     const cur = statsByPage.get(p.facebookPageId) ?? { posted: 0, pending: 0 };
     if (p.status === "posted") cur.posted++;
     if (PENDING_STATUSES.has(p.status)) cur.pending++;

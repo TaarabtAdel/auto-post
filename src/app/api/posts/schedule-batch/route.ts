@@ -10,11 +10,11 @@ import {
   createPostWithMedia,
   type MediaInput,
 } from "@/lib/create-post-with-media";
-import { enqueuePostsForBatch } from "@/lib/publish-queue-processor";
 
 /**
  * POST /api/posts/schedule-batch
  * Body: { content, media?, scheduledAt, facebookPageIds: string[] }
+ * Một bản ghi post, nhiều Fanpage — queue từng Page lần lượt.
  */
 export async function POST(request: NextRequest) {
   const session = await getAppSession({ headers: await headers() });
@@ -118,36 +118,23 @@ export async function POST(request: NextRequest) {
   );
 
   const batchId = randomBytes(16).toString("hex");
-  const postIds: string[] = [];
-  const queueItems: Parameters<typeof enqueuePostsForBatch>[0] = [];
+  const orderedIds = targetPages.map((p) => p.id);
 
-  for (let i = 0; i < targetPages.length; i++) {
-    const page = targetPages[i];
-    const postId = await createPostWithMedia({
-      userId: session.user.id,
-      content,
-      firstComment,
-      facebookPageId: page.id,
-      media,
-      batchId,
-      scheduledAt: scheduledDate,
-      status: "queued",
-    });
-    postIds.push(postId);
-    queueItems.push({
-      userId: session.user.id,
-      postId,
-      batchId,
-      queueOrder: i,
-      scheduledAt: scheduledDate,
-    });
-  }
-
-  await enqueuePostsForBatch(queueItems);
+  const postId = await createPostWithMedia({
+    userId: session.user.id,
+    content,
+    firstComment,
+    facebookPageIds: orderedIds,
+    media,
+    batchId,
+    scheduledAt: scheduledDate,
+    status: "queued",
+  });
 
   return NextResponse.json({
     batchId,
-    postIds,
+    postIds: [postId],
+    postId,
     pageCount: targetPages.length,
     scheduledAt: scheduledDate.toISOString(),
     pages: targetPages.map((p) => p.pageName),

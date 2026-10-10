@@ -11,6 +11,12 @@ export async function register() {
     );
     await migrateLegacyWorkspaceApps();
 
+    const { migratePostPagesSchema, migrateLegacyPostPageLinks } = await import(
+      "@/lib/post-pages"
+    );
+    migratePostPagesSchema();
+    await migrateLegacyPostPageLinks();
+
     const { startScheduler } = await import("@/lib/scheduler");
     startScheduler();
   } else {

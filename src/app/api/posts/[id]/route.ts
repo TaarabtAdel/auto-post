@@ -8,8 +8,13 @@ import { eq, and } from "drizzle-orm";
 import { randomBytes } from "crypto";
 import {
   cancelPendingQueueForPost,
-  enqueuePostsForBatch,
+  enqueueScheduledPostPages,
 } from "@/lib/publish-queue-processor";
+import {
+  getFacebookPageIdsForPost,
+  replacePostFacebookPages,
+  validateUserPageIds,
+} from "@/lib/post-pages";
 import { describeDeleteImpact } from "@/lib/post-delete-impact";
 import { deleteMediaFilesForPost } from "@/lib/post-media-cleanup";
 import { uploadMediaPublicUrl } from "@/lib/upload-media-url";
@@ -113,6 +118,7 @@ export async function PATCH(request: NextRequest, { params }: Params) {
   let body: {
     content?: string;
     facebookPageId?: string | null;
+    facebookPageIds?: string[];
     media?: MediaInput[];
     scheduledAt?: string | null;
     firstComment?: string | null;
@@ -159,8 +165,38 @@ export async function PATCH(request: NextRequest, { params }: Params) {
     }
     updates.firstComment = fc;
   }
-  if (body.facebookPageId !== undefined)
+  if (body.facebookPageIds !== undefined) {
+    const validated = await validateUserPageIds(
+      session.user.id,
+      body.facebookPageIds
+    );
+    if (!validated.ok) {
+      return NextResponse.json({ error: validated.error }, { status: 400 });
+    }
+    await replacePostFacebookPages(id, body.facebookPageIds);
+    updates.facebookPageId = body.facebookPageIds[0] ?? null;
+
+    if (
+      (p.status === "queued" || p.status === "scheduled") &&
+      p.scheduledAt &&
+      body.scheduledAt === undefined
+    ) {
+      const batchId = p.batchId || randomBytes(16).toString("hex");
+      updates.batchId = batchId;
+      await cancelPendingQueueForPost(id);
+      await enqueueScheduledPostPages({
+        userId: session.user.id,
+        postId: id,
+        batchId,
+        scheduledAt: p.scheduledAt,
+      });
+    }
+  } else if (body.facebookPageId !== undefined) {
     updates.facebookPageId = body.facebookPageId;
+    if (body.facebookPageId) {
+      await replacePostFacebookPages(id, [body.facebookPageId]);
+    }
+  }
 
   // Handle scheduling
   if (body.scheduledAt !== undefined) {
@@ -172,11 +208,10 @@ export async function PATCH(request: NextRequest, { params }: Params) {
           { status: 400 }
         );
       }
-      // Require facebookPageId for scheduling
-      const pageId = body.facebookPageId ?? p.facebookPageId;
-      if (!pageId) {
+      const pageIds = await getFacebookPageIdsForPost(id);
+      if (pageIds.length === 0) {
         return NextResponse.json(
-          { error: "Phải chọn Facebook Page trước khi hẹn giờ." },
+          { error: "Phải chọn ít nhất một Fanpage trước khi hẹn giờ." },
           { status: 400 }
         );
       }
@@ -186,15 +221,12 @@ export async function PATCH(request: NextRequest, { params }: Params) {
       updates.batchId = batchId;
 
       await cancelPendingQueueForPost(id);
-      await enqueuePostsForBatch([
-        {
-          userId: session.user.id,
-          postId: id,
-          batchId,
-          queueOrder: 0,
-          scheduledAt: scheduledDate,
-        },
-      ]);
+      await enqueueScheduledPostPages({
+        userId: session.user.id,
+        postId: id,
+        batchId,
+        scheduledAt: scheduledDate,
+      });
     } else {
       updates.scheduledAt = null;
       updates.status = "draft";

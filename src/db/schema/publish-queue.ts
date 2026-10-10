@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm";
 import { sqliteTable, text, integer, index } from "drizzle-orm/sqlite-core";
 import { user } from "./auth";
 import { post } from "./post";
+import { facebookPage } from "./facebook-page";
 
 export const publishQueue = sqliteTable(
   "publish_queue",
@@ -13,6 +14,9 @@ export const publishQueue = sqliteTable(
     postId: text("post_id")
       .notNull()
       .references(() => post.id, { onDelete: "cascade" }),
+    facebookPageId: text("facebook_page_id").references(() => facebookPage.id, {
+      onDelete: "set null",
+    }),
     batchId: text("batch_id").notNull(),
     queueOrder: integer("queue_order").notNull().default(0),
     scheduledAt: integer("scheduled_at", { mode: "timestamp_ms" }).notNull(),

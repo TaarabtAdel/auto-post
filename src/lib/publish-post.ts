@@ -14,6 +14,12 @@ import {
 import { getFacebookCredentials } from "@/lib/workspace-app";
 import { uploadMediaFsPath } from "@/lib/upload-media-url";
 import { readFile } from "fs/promises";
+import {
+  getFacebookPageIdsForPost,
+  markPostPageFailed,
+  markPostPagePublished,
+  refreshPostAggregateStatus,
+} from "@/lib/post-pages";
 
 export interface PublishPostResult {
   success: boolean;
@@ -22,17 +28,29 @@ export interface PublishPostResult {
   tokenExpired?: boolean;
 }
 
-export async function publishPostById(postId: string): Promise<PublishPostResult> {
+export async function publishPostById(
+  postId: string,
+  targetFacebookPageId?: string | null
+): Promise<PublishPostResult> {
   const rows = await db.select().from(post).where(eq(post.id, postId));
   const p = rows[0];
-  if (!p?.facebookPageId) {
+
+  let facebookPageId =
+    targetFacebookPageId ?? p?.facebookPageId ?? null;
+
+  if (!facebookPageId) {
+    const ids = await getFacebookPageIdsForPost(postId);
+    facebookPageId = ids[0] ?? null;
+  }
+
+  if (!p || !facebookPageId) {
     return { success: false, error: "Thiếu Facebook Page." };
   }
 
   const pages = await db
     .select()
     .from(facebookPage)
-    .where(eq(facebookPage.id, p.facebookPageId));
+    .where(eq(facebookPage.id, facebookPageId));
 
   if (pages.length === 0) {
     return { success: false, error: "Facebook Page đã bị xóa." };
@@ -91,10 +109,8 @@ export async function publishPostById(postId: string): Promise<PublishPostResult
     }
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Unknown error";
-    await db
-      .update(post)
-      .set({ status: "failed", errorMessage: msg })
-      .where(eq(post.id, postId));
+    await markPostPageFailed(postId, facebookPageId, msg);
+    await refreshPostAggregateStatus(postId);
     return { success: false, error: msg };
   }
 
@@ -137,35 +153,34 @@ export async function publishPostById(postId: string): Promise<PublishPostResult
           await db
             .update(facebookPage)
             .set({ tokenStatus: "expired" })
-            .where(eq(facebookPage.id, p.facebookPageId));
+            .where(eq(facebookPage.id, facebookPageId));
         }
         console.warn(`[publish] Comment failed for post ${postId}:`, commentResult.error);
       }
     }
 
-    await db
-      .update(post)
-      .set({
-        status: "posted",
-        fbPostId: result.fbPostId || null,
-        postedAt: new Date(),
-        errorMessage: commentWarning,
-      })
-      .where(eq(post.id, postId));
+    await markPostPagePublished(postId, facebookPageId, result.fbPostId || null);
+    await refreshPostAggregateStatus(postId);
+    if (commentWarning) {
+      await db
+        .update(post)
+        .set({ errorMessage: commentWarning })
+        .where(eq(post.id, postId));
+      return { ...result, error: commentWarning };
+    }
   } else {
     if (result.tokenExpired) {
       await db
         .update(facebookPage)
         .set({ tokenStatus: "expired" })
-        .where(eq(facebookPage.id, p.facebookPageId));
+        .where(eq(facebookPage.id, facebookPageId));
     }
-    await db
-      .update(post)
-      .set({
-        status: "failed",
-        errorMessage: result.error || "Unknown error",
-      })
-      .where(eq(post.id, postId));
+    await markPostPageFailed(
+      postId,
+      facebookPageId,
+      result.error || "Unknown error"
+    );
+    await refreshPostAggregateStatus(postId);
   }
 
   return result;
