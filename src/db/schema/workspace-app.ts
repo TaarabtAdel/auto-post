@@ -11,6 +11,8 @@ export const workspaceApp = sqliteTable("workspace_app", {
   description: text("description"),
   facebookAppId: text("facebook_app_id").notNull(),
   encryptedAppSecret: text("encrypted_app_secret").notNull(),
+  /** User access token (Explorer) — mã hóa; dùng lấy Page token khi Page token thiếu quyền. */
+  encryptedUserToken: text("encrypted_user_token"),
   createdAt: integer("created_at", { mode: "timestamp_ms" })
     .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
     .notNull(),
