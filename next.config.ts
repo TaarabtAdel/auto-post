@@ -49,10 +49,12 @@ const securityHeaders = [
 
 const nextConfig: NextConfig = {
   outputFileTracingRoot: projectRoot,
+  serverExternalPackages: ["ffmpeg-static", "youtube-dl-exec"],
   experimental: {
     serverActions: {
-      bodySizeLimit: "100mb",
+      bodySizeLimit: "1gb",
     },
+    proxyClientMaxBodySize: "1gb",
   },
   async rewrites() {
     return [

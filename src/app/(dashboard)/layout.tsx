@@ -1,6 +1,5 @@
 import { auth } from "@/lib/auth";
 import { headers } from "next/headers";
-import { redirect } from "next/navigation";
 import { Sidebar } from "@/components/sidebar";
 
 export default async function DashboardLayout({
@@ -11,10 +10,6 @@ export default async function DashboardLayout({
   const session = await auth.api.getSession({
     headers: await headers(),
   });
-
-  if (!session) {
-    redirect("/login");
-  }
 
   return (
     <div className="min-h-screen bg-gray-50">

@@ -43,7 +43,7 @@ const MEDIA_MIME_MAP: Record<string, { ext: string; fileType: "image" | "video" 
   "application/pdf": { ext: "pdf", fileType: "image" }, // treat PDF as image for storage
 };
 
-const MAX_MEDIA_SIZE = 100 * 1024 * 1024; // 100MB
+const MAX_MEDIA_SIZE = 1024 * 1024 * 1024; // 1GB
 
 export interface DriveMediaResult {
   buffer: Buffer;
@@ -112,7 +112,7 @@ export async function fetchDriveMedia(fileId: string): Promise<DriveMediaResult>
           }
           const arrayBuf = await retryRes.arrayBuffer();
           if (arrayBuf.byteLength > MAX_MEDIA_SIZE) {
-            throw new Error("File quá lớn. Giới hạn 100MB.");
+            throw new Error("File quá lớn. Giới hạn 1GB.");
           }
           return {
             buffer: Buffer.from(arrayBuf),
@@ -135,7 +135,7 @@ export async function fetchDriveMedia(fileId: string): Promise<DriveMediaResult>
 
     const arrayBuf = await res.arrayBuffer();
     if (arrayBuf.byteLength > MAX_MEDIA_SIZE) {
-      throw new Error("File quá lớn. Giới hạn 100MB.");
+      throw new Error("File quá lớn. Giới hạn 1GB.");
     }
 
     return {

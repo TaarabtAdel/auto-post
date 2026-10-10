@@ -42,9 +42,28 @@ export default function NewPostPage() {
   const [error, setError] = useState("");
   const [driveUrl, setDriveUrl] = useState("");
   const [importing, setImporting] = useState(false);
+  const [youtubeUrl, setYoutubeUrl] = useState("");
+  const [importingYt, setImportingYt] = useState(false);
   const [driveImportType, setDriveImportType] = useState<"text" | "media">("text");
   const [scheduledAt, setScheduledAt] = useState("");
   const [scheduling, setScheduling] = useState(false);
+
+  useEffect(() => {
+    try {
+      const raw = sessionStorage.getItem("autopost_reel");
+      if (raw) {
+        const reel = JSON.parse(raw) as MediaFile;
+        if (reel?.filePath && reel?.url) {
+          setMedia((prev) =>
+            prev.some((m) => m.filePath === reel.filePath) ? prev : [...prev, reel]
+          );
+        }
+        sessionStorage.removeItem("autopost_reel");
+      }
+    } catch {
+      // ignore
+    }
+  }, []);
 
   useEffect(() => {
     Promise.all([
@@ -199,6 +218,43 @@ export default function NewPostPage() {
       mimeType: m.mimeType,
       fileType: m.fileType,
     }));
+  }
+
+  async function handleImportYouTube() {
+    if (!youtubeUrl.trim()) {
+      setError("Dán link YouTube.");
+      return;
+    }
+    setImportingYt(true);
+    setError("");
+    try {
+      const res = await fetch("/api/import/youtube", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: youtubeUrl.trim() }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error || "Không tải được video YouTube.");
+        return;
+      }
+      setMedia((prev) => [
+        ...prev,
+        {
+          filePath: data.filePath,
+          fileName: data.fileName,
+          fileSize: data.fileSize,
+          mimeType: data.mimeType,
+          fileType: data.fileType,
+          url: data.url,
+        },
+      ]);
+      setYoutubeUrl("");
+    } catch {
+      setError("Lỗi kết nối khi tải YouTube.");
+    } finally {
+      setImportingYt(false);
+    }
   }
 
   async function handleSaveDraft() {
@@ -450,6 +506,33 @@ export default function NewPostPage() {
               className="bg-green-600 text-white py-2 px-4 rounded-md text-sm disabled:opacity-50"
             >
               {importing ? "..." : "Import"}
+            </button>
+          </div>
+        </div>
+
+        <div className="bg-white rounded-lg border border-gray-200 p-6">
+          <label className="block text-sm font-medium text-gray-700 mb-2">
+            Tải video từ YouTube
+          </label>
+          <p className="text-xs text-gray-500 mb-3">
+            Giống YouTubeLocVideo: dán 1 link watch / Shorts / youtu.be — server
+            tải mp4 (tối đa 1080p, 80MB), không tải cả playlist.
+          </p>
+          <div className="flex gap-2">
+            <input
+              type="url"
+              value={youtubeUrl}
+              onChange={(e) => setYoutubeUrl(e.target.value)}
+              className="flex-1 px-3 py-2 border border-gray-300 rounded-md text-sm"
+              placeholder="https://www.youtube.com/watch?v=..."
+            />
+            <button
+              type="button"
+              onClick={handleImportYouTube}
+              disabled={importingYt || !youtubeUrl.trim()}
+              className="bg-red-600 text-white py-2 px-4 rounded-md text-sm disabled:opacity-50"
+            >
+              {importingYt ? "Đang tải..." : "Tải video"}
             </button>
           </div>
         </div>

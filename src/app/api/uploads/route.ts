@@ -14,9 +14,22 @@ const ALLOWED_IMAGE_TYPES = [
   "image/webp",
 ];
 const ALLOWED_VIDEO_TYPES = ["video/mp4", "video/quicktime"];
-const ALLOWED_TYPES = [...ALLOWED_IMAGE_TYPES, ...ALLOWED_VIDEO_TYPES];
+const ALLOWED_AUDIO_TYPES = [
+  "audio/mpeg",
+  "audio/mp3",
+  "audio/wav",
+  "audio/x-wav",
+  "audio/aac",
+  "audio/mp4",
+  "audio/m4a",
+];
+const ALLOWED_TYPES = [
+  ...ALLOWED_IMAGE_TYPES,
+  ...ALLOWED_VIDEO_TYPES,
+  ...ALLOWED_AUDIO_TYPES,
+];
 const MAX_IMAGE_SIZE = 10 * 1024 * 1024; // 10MB
-const MAX_VIDEO_SIZE = 100 * 1024 * 1024; // 100MB
+const MAX_VIDEO_SIZE = 1024 * 1024 * 1024; // 1GB
 
 function getFileExtension(mimeType: string): string {
   const map: Record<string, string> = {
@@ -26,6 +39,13 @@ function getFileExtension(mimeType: string): string {
     "image/webp": "webp",
     "video/mp4": "mp4",
     "video/quicktime": "mov",
+    "audio/mpeg": "mp3",
+    "audio/mp3": "mp3",
+    "audio/wav": "wav",
+    "audio/x-wav": "wav",
+    "audio/aac": "aac",
+    "audio/mp4": "m4a",
+    "audio/m4a": "m4a",
   };
   return map[mimeType] || "bin";
 }
@@ -69,7 +89,7 @@ export async function POST(request: NextRequest) {
   if (!ALLOWED_TYPES.includes(file.type)) {
     return NextResponse.json(
       {
-        error: `Loại file không hỗ trợ: ${file.type}. Chấp nhận: ảnh (JPEG, PNG, GIF, WebP) và video (MP4, MOV).`,
+        error: `Loại file không hỗ trợ: ${file.type}. Chấp nhận: ảnh, video (MP4, MOV) và nhạc (MP3, WAV, AAC).`,
       },
       { status: 400 }
     );
@@ -77,11 +97,15 @@ export async function POST(request: NextRequest) {
 
   // Validate size
   const isVideo = ALLOWED_VIDEO_TYPES.includes(file.type);
-  const maxSize = isVideo ? MAX_VIDEO_SIZE : MAX_IMAGE_SIZE;
+  const isAudio = ALLOWED_AUDIO_TYPES.includes(file.type);
+  const maxSize = isVideo || isAudio ? MAX_VIDEO_SIZE : MAX_IMAGE_SIZE;
   if (file.size > maxSize) {
-    const maxMB = maxSize / (1024 * 1024);
+    const maxLabel =
+      maxSize >= 1024 * 1024 * 1024
+        ? `${maxSize / (1024 * 1024 * 1024)}GB`
+        : `${maxSize / (1024 * 1024)}MB`;
     return NextResponse.json(
-      { error: `File quá lớn. Giới hạn: ${maxMB}MB.` },
+      { error: `File quá lớn. Giới hạn: ${maxLabel}.` },
       { status: 400 }
     );
   }
@@ -107,7 +131,7 @@ export async function POST(request: NextRequest) {
     fileName: file.name,
     fileSize: file.size,
     mimeType: file.type,
-    fileType: isVideo ? "video" : "image",
+    fileType: isVideo ? "video" : isAudio ? "audio" : "image",
     url: uploadMediaPublicUrl(relativePath),
   });
 }
