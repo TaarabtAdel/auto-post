@@ -38,11 +38,6 @@ cookies.txt
 .env.production
 !.env.production.example
 
-# database
-sqlite.db
-sqlite.db-wal
-sqlite.db-shm
-
 # uploads
 /uploads
 
