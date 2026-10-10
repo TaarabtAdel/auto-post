@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
+import { getAppSession } from "@/lib/app-session";
 import { headers } from "next/headers";
 import {
   exchangeForLongLivedUserToken,
@@ -14,12 +14,9 @@ import { getFacebookCredentials } from "@/lib/workspace-app";
  * Body: { accessToken: string, workspaceAppId: string, includePages?: boolean }
  */
 export async function POST(request: NextRequest) {
-  const session = await auth.api.getSession({
+  const session = await getAppSession({
     headers: await headers(),
   });
-  if (!session) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
 
   const limited = checkRateLimit(aiLimiter, `fb-token:${session.user.id}`);
   if (limited) return limited;

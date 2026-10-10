@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { auth } from "@/lib/auth";
+import { getAppSession } from "@/lib/app-session";
 import { headers } from "next/headers";
 import { TokenRenewForm } from "@/components/token-renew-form";
 import { listWorkspaceApps } from "@/lib/workspace-app";
@@ -9,7 +9,7 @@ export const metadata: Metadata = {
 };
 
 export default async function RenewTokenPage() {
-  const session = await auth.api.getSession({
+  const session = await getAppSession({
     headers: await headers(),
   });
 

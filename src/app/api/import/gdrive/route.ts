@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
+import { getAppSession } from "@/lib/app-session";
 import { headers } from "next/headers";
 import { parseDriveUrl, fetchDriveContent, fetchDriveMedia } from "@/lib/gdrive";
 import { writeFile, mkdir } from "fs/promises";
@@ -17,12 +17,9 @@ import { uploadMediaPublicUrl } from "@/lib/upload-media-url";
  *   media: { filePath, fileName, fileSize, mimeType, fileType, url }
  */
 export async function POST(request: NextRequest) {
-  const session = await auth.api.getSession({
+  const session = await getAppSession({
     headers: await headers(),
   });
-  if (!session) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
 
   let body: { url?: string; type?: string };
   try {

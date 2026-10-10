@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { auth } from "@/lib/auth";
+import { getAppSession } from "@/lib/app-session";
 import { headers } from "next/headers";
 import { db } from "@/lib/db";
 import { post, postMedia } from "@/db/schema/post";
@@ -19,7 +19,7 @@ export const dynamic = "force-dynamic";
 export default async function PostsPage() {
   await drainPublishQueue(5);
 
-  const session = await auth.api.getSession({
+  const session = await getAppSession({
     headers: await headers(),
   });
 

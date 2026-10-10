@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { auth } from "@/lib/auth";
+import { getAppSession } from "@/lib/app-session";
 import { headers } from "next/headers";
 import { db } from "@/lib/db";
 import { facebookPage } from "@/db/schema/facebook-page";
@@ -17,7 +17,7 @@ export const metadata: Metadata = {
 const PENDING_STATUSES = new Set(["queued", "scheduled", "posting"]);
 
 export default async function PagesPage() {
-  const session = await auth.api.getSession({
+  const session = await getAppSession({
     headers: await headers(),
   });
 

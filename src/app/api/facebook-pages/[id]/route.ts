@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
+import { getAppSession } from "@/lib/app-session";
 import { headers } from "next/headers";
 import { db } from "@/lib/db";
 import { facebookPage } from "@/db/schema/facebook-page";
@@ -14,12 +14,9 @@ type Params = { params: Promise<{ id: string }> };
  * GET /api/facebook-pages/[id] — decrypt and return stored Page access token (owner only)
  */
 export async function GET(_request: NextRequest, { params }: Params) {
-  const session = await auth.api.getSession({
+  const session = await getAppSession({
     headers: await headers(),
   });
-  if (!session) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
 
   const { id } = await params;
 
@@ -55,12 +52,9 @@ export async function GET(_request: NextRequest, { params }: Params) {
  * DELETE /api/facebook-pages/[id] — remove a connected page
  */
 export async function DELETE(_request: NextRequest, { params }: Params) {
-  const session = await auth.api.getSession({
+  const session = await getAppSession({
     headers: await headers(),
   });
-  if (!session) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
 
   const { id } = await params;
 
@@ -90,12 +84,9 @@ export async function DELETE(_request: NextRequest, { params }: Params) {
  * Body: { accessToken: string }
  */
 export async function PATCH(request: NextRequest, { params }: Params) {
-  const session = await auth.api.getSession({
+  const session = await getAppSession({
     headers: await headers(),
   });
-  if (!session) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
 
   const { id } = await params;
 

@@ -1,7 +1,7 @@
 import { execFile } from "child_process";
 import { createRequire } from "module";
 import { promisify } from "util";
-import { existsSync } from "fs";
+import { accessSync, constants, chmodSync, existsSync } from "fs";
 import { dirname, join } from "path";
 import ffmpegStatic from "ffmpeg-static";
 
@@ -21,7 +21,19 @@ function resolveFfmpegFromPackage(): string | null {
   candidates.push(join(process.cwd(), "node_modules", "ffmpeg-static", "ffmpeg"));
 
   for (const p of candidates) {
-    if (p && existsSync(p)) return p;
+    if (!p || !existsSync(p)) continue;
+    try {
+      accessSync(p, constants.X_OK);
+      return p;
+    } catch {
+      try {
+        chmodSync(p, 0o755);
+        accessSync(p, constants.X_OK);
+        return p;
+      } catch {
+        // try next candidate
+      }
+    }
   }
   return null;
 }

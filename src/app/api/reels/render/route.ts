@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
+import { getAppSession } from "@/lib/app-session";
 import { headers } from "next/headers";
 import { mkdir, stat } from "fs/promises";
 import { existsSync } from "fs";
@@ -147,12 +147,9 @@ function sanitizeSplit(raw: unknown): ReelSplit | undefined {
 }
 
 export async function POST(request: NextRequest) {
-  const session = await auth.api.getSession({
+  const session = await getAppSession({
     headers: await headers(),
   });
-  if (!session) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
 
   const limited = checkRateLimit(reelLimiter, session.user.id);
   if (limited) return limited;

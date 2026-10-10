@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
+import { getAppSession } from "@/lib/app-session";
 import { headers } from "next/headers";
 import { db } from "@/lib/db";
 import { post } from "@/db/schema/post";
@@ -12,10 +12,7 @@ type Params = { params: Promise<{ id: string }> };
 
 /** POST /api/posts/[id]/run-now — đăng ngay, không chờ cron */
 export async function POST(_request: Request, { params }: Params) {
-  const session = await auth.api.getSession({ headers: await headers() });
-  if (!session) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const session = await getAppSession({ headers: await headers() });
 
   const { id } = await params;
   const rows = await db

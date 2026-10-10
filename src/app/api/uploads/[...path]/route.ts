@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { readFile, stat } from "fs/promises";
 import { resolve, normalize } from "path";
 import { normalizeUploadRelativePath } from "@/lib/upload-media-url";
-import { auth } from "@/lib/auth";
+import { getAppSession } from "@/lib/app-session";
 import { headers } from "next/headers";
 
 const MIME_TYPES: Record<string, string> = {
@@ -30,12 +30,9 @@ export async function GET(_request: NextRequest, { params }: Params) {
   }
 
   // Auth check
-  const session = await auth.api.getSession({
+  const session = await getAppSession({
     headers: await headers(),
   });
-  if (!session) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
 
   // Ownership check: first segment must be the user's ID
   const requestedUserId = pathSegments[0];

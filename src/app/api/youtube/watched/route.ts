@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
+import { getAppSession } from "@/lib/app-session";
 import { headers } from "next/headers";
 import { db, sqlite } from "@/lib/db";
 import { youtubeWatched } from "@/db/schema/youtube-watched";
@@ -20,17 +20,14 @@ function ensureTable() {
 }
 
 async function requireUser() {
-  const session = await auth.api.getSession({
+  const session = await getAppSession({
     headers: await headers(),
   });
-  return session?.user ?? null;
+  return session.user;
 }
 
 export async function GET() {
   const user = await requireUser();
-  if (!user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
   ensureTable();
 
   const rows = await db
@@ -43,9 +40,6 @@ export async function GET() {
 
 export async function POST(request: NextRequest) {
   const user = await requireUser();
-  if (!user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
   ensureTable();
 
   let body: { videoId?: string; videoIds?: string[]; watched?: boolean };

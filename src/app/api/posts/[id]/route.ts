@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
+import { getAppSession } from "@/lib/app-session";
 import { headers } from "next/headers";
 import { db } from "@/lib/db";
 import { post, postMedia } from "@/db/schema/post";
@@ -36,12 +36,9 @@ async function getOwnedPost(postId: string, userId: string) {
  * GET /api/posts/[id] — get post details with media
  */
 export async function GET(_request: NextRequest, { params }: Params) {
-  const session = await auth.api.getSession({
+  const session = await getAppSession({
     headers: await headers(),
   });
-  if (!session) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
 
   const { id } = await params;
   const p = await getOwnedPost(id, session.user.id);
@@ -88,12 +85,9 @@ export async function GET(_request: NextRequest, { params }: Params) {
  * Body: { content?, facebookPageId?, media?: MediaInput[] }
  */
 export async function PATCH(request: NextRequest, { params }: Params) {
-  const session = await auth.api.getSession({
+  const session = await getAppSession({
     headers: await headers(),
   });
-  if (!session) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
 
   const { id } = await params;
   const p = await getOwnedPost(id, session.user.id);
@@ -248,12 +242,9 @@ export async function PATCH(request: NextRequest, { params }: Params) {
  * DELETE /api/posts/[id] — xóa một bản ghi (một Fanpage). Không gỡ bài trên Facebook.
  */
 export async function DELETE(_request: NextRequest, { params }: Params) {
-  const session = await auth.api.getSession({
+  const session = await getAppSession({
     headers: await headers(),
   });
-  if (!session) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
 
   const { id } = await params;
   const p = await getOwnedPost(id, session.user.id);

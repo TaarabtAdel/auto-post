@@ -10,7 +10,7 @@ export const auth = betterAuth({
     schema,
   }),
   emailAndPassword: {
-    enabled: true,
+    enabled: false,
   },
   trustedOrigins: [
     "http://localhost:3100",
@@ -20,7 +20,9 @@ export const auth = betterAuth({
 
 const originalGetSession = auth.api.getSession.bind(auth.api);
 
-auth.api.getSession = (async (opts) => {
+auth.api.getSession = (async (
+  opts: Parameters<typeof originalGetSession>[0]
+) => {
   const session = await originalGetSession(opts);
   if (session) return session;
   const u = await ensureLocalUser();

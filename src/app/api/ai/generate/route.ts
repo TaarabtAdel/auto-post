@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
+import { getAppSession } from "@/lib/app-session";
 import { headers } from "next/headers";
 import { generatePostContent, downloadImage } from "@/lib/ai";
 import { writeFile, mkdir } from "fs/promises";
@@ -14,13 +14,9 @@ import { uploadMediaPublicUrl } from "@/lib/upload-media-url";
  * Returns: { content: string, images?: MediaFile[], tokensUsed?: number }
  */
 export async function POST(request: NextRequest) {
-  const session = await auth.api.getSession({
+  const session = await getAppSession({
     headers: await headers(),
   });
-
-  if (!session) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
 
   // Rate limit: 10 AI requests / min / user
   const limited = checkLimit(aiLimiter, session.user.id);

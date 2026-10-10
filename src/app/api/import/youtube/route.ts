@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
+import { getAppSession } from "@/lib/app-session";
 import { headers } from "next/headers";
 import { join, relative } from "path";
 import { mkdir } from "fs/promises";
@@ -20,18 +20,14 @@ export const maxDuration = 180;
 const QUALITIES = new Set<YouTubeQuality>(["best", "1080", "720", "480", "360"]);
 
 async function requireUser() {
-  const session = await auth.api.getSession({
+  const session = await getAppSession({
     headers: await headers(),
   });
-  if (!session) return null;
   return session.user;
 }
 
 export async function GET() {
   const user = await requireUser();
-  if (!user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
 
   const userDir = join(process.cwd(), "uploads", user.id);
   const files = await listYouTubeDownloads(userDir);
@@ -54,9 +50,6 @@ export async function GET() {
  */
 export async function POST(request: NextRequest) {
   const user = await requireUser();
-  if (!user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
 
   const limited = checkRateLimit(youtubeLimiter, user.id);
   if (limited) return limited;
