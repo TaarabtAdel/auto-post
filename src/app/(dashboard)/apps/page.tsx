@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { auth } from "@/lib/auth";
+import { getAppSession } from "@/lib/app-session";
 import { headers } from "next/headers";
 import { listWorkspaceApps } from "@/lib/workspace-app";
 import { WorkspaceAppsManager } from "@/components/workspace-apps-manager";
@@ -9,7 +9,7 @@ export const metadata: Metadata = {
 };
 
 export default async function AppsPage() {
-  const session = await auth.api.getSession({
+  const session = await getAppSession({
     headers: await headers(),
   });
 

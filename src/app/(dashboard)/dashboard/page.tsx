@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { auth } from "@/lib/auth";
+import { getAppSession } from "@/lib/app-session";
 import { headers } from "next/headers";
 import { db } from "@/lib/db";
 import { post } from "@/db/schema/post";
@@ -21,7 +21,7 @@ const STATUS_LABELS: Record<string, { label: string; color: string }> = {
 };
 
 export default async function DashboardPage() {
-  const session = await auth.api.getSession({
+  const session = await getAppSession({
     headers: await headers(),
   });
 

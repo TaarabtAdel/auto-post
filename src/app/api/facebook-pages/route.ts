@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
+import { getAppSession } from "@/lib/app-session";
 import { headers } from "next/headers";
 import { db } from "@/lib/db";
 import { facebookPage } from "@/db/schema/facebook-page";
@@ -13,12 +13,9 @@ import { randomBytes } from "crypto";
  * GET /api/facebook-pages — list pages (?workspaceAppId= filter by app, unassigned = no app)
  */
 export async function GET(request: NextRequest) {
-  const session = await auth.api.getSession({
+  const session = await getAppSession({
     headers: await headers(),
   });
-  if (!session) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
 
   const filterApp = request.nextUrl.searchParams.get("workspaceAppId");
 
@@ -49,12 +46,9 @@ export async function GET(request: NextRequest) {
  * Body: { accessToken: string }
  */
 export async function POST(request: NextRequest) {
-  const session = await auth.api.getSession({
+  const session = await getAppSession({
     headers: await headers(),
   });
-  if (!session) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
 
   let body: { accessToken?: string; workspaceAppId?: string };
   try {

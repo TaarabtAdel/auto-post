@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
+import { getAppSession } from "@/lib/app-session";
 import { headers } from "next/headers";
 import { buildOAuthUrl } from "@/lib/facebook";
 import { randomBytes } from "crypto";
@@ -11,13 +11,9 @@ import { getFacebookCredentials } from "@/lib/workspace-app";
  * Redirects user to Facebook OAuth dialog.
  */
 export async function GET(request: NextRequest) {
-  const session = await auth.api.getSession({
+  const session = await getAppSession({
     headers: await headers(),
   });
-
-  if (!session) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
 
   const workspaceAppId = request.nextUrl.searchParams.get("workspaceAppId")?.trim();
   if (!workspaceAppId) {

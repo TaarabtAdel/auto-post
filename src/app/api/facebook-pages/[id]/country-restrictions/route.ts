@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
+import { getAppSession } from "@/lib/app-session";
 import { headers } from "next/headers";
 import { db } from "@/lib/db";
 import { facebookPage } from "@/db/schema/facebook-page";
@@ -31,10 +31,7 @@ async function getOwnedPageRow(id: string, userId: string) {
 
 /** GET — đọc giới hạn quốc gia từ Facebook */
 export async function GET(_request: NextRequest, { params }: Params) {
-  const session = await auth.api.getSession({ headers: await headers() });
-  if (!session) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const session = await getAppSession({ headers: await headers() });
 
   const { id } = await params;
   const row = await getOwnedPageRow(id, session.user.id);
@@ -71,10 +68,7 @@ export async function GET(_request: NextRequest, { params }: Params) {
  * Body: { countries: string[] } — rỗng = gỡ giới hạn (whitelist không country).
  */
 export async function PATCH(request: NextRequest, { params }: Params) {
-  const session = await auth.api.getSession({ headers: await headers() });
-  if (!session) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const session = await getAppSession({ headers: await headers() });
 
   const { id } = await params;
   const row = await getOwnedPageRow(id, session.user.id);

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
+import { getAppSession } from "@/lib/app-session";
 import { headers } from "next/headers";
 import { db } from "@/lib/db";
 import { facebookPage } from "@/db/schema/facebook-page";
@@ -17,10 +17,7 @@ import { enqueuePostsForBatch } from "@/lib/publish-queue-processor";
  * Body: { content, media?, scheduledAt, facebookPageIds: string[] }
  */
 export async function POST(request: NextRequest) {
-  const session = await auth.api.getSession({ headers: await headers() });
-  if (!session) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const session = await getAppSession({ headers: await headers() });
 
   const limited = checkRateLimit(postsLimiter, session.user.id);
   if (limited) return limited;

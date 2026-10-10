@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
+import { getAppSession } from "@/lib/app-session";
 import { headers } from "next/headers";
 import { cookies } from "next/headers";
 import { db } from "@/lib/db";
@@ -19,13 +19,9 @@ import { getFacebookCredentials } from "@/lib/workspace-app";
  * Facebook redirects here after OAuth. Exchanges code → token → pages.
  */
 export async function GET(request: NextRequest) {
-  const session = await auth.api.getSession({
+  const session = await getAppSession({
     headers: await headers(),
   });
-
-  if (!session) {
-    return redirectWithError("Phiên đăng nhập hết hạn. Vui lòng đăng nhập lại.");
-  }
 
   const searchParams = request.nextUrl.searchParams;
   const code = searchParams.get("code");

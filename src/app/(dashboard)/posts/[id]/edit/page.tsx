@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { auth } from "@/lib/auth";
+import { getAppSession } from "@/lib/app-session";
 import { headers } from "next/headers";
 import { db } from "@/lib/db";
 import { post, postMedia } from "@/db/schema/post";
@@ -20,7 +20,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 }
 
 export default async function EditPostPage({ params }: Props) {
-  const session = await auth.api.getSession({ headers: await headers() });
+  const session = await getAppSession({ headers: await headers() });
   const { id } = await params;
 
   const rows = await db

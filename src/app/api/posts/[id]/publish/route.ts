@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { post } from "@/db/schema/post";
 import { eq } from "drizzle-orm";
-import { auth } from "@/lib/auth";
+import { getAppSession } from "@/lib/app-session";
 import { headers } from "next/headers";
 import { publishPostById } from "@/lib/publish-post";
 
@@ -17,7 +17,7 @@ async function getAuthSource(
     return { source: "apikey" };
   }
 
-  const session = await auth.api.getSession({
+  const session = await getAppSession({
     headers: await headers(),
   });
   if (session) {

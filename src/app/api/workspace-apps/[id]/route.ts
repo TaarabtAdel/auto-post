@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
+import { getAppSession } from "@/lib/app-session";
 import { headers } from "next/headers";
 import { db } from "@/lib/db";
 import { workspaceApp } from "@/db/schema/workspace-app";
@@ -15,10 +15,7 @@ import {
 type RouteContext = { params: Promise<{ id: string }> };
 
 export async function GET(_request: NextRequest, context: RouteContext) {
-  const session = await auth.api.getSession({ headers: await headers() });
-  if (!session) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const session = await getAppSession({ headers: await headers() });
 
   const { id } = await context.params;
   const app = await getWorkspaceAppForUser(id, session.user.id);
@@ -40,10 +37,7 @@ export async function GET(_request: NextRequest, context: RouteContext) {
 }
 
 export async function PATCH(request: NextRequest, context: RouteContext) {
-  const session = await auth.api.getSession({ headers: await headers() });
-  if (!session) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const session = await getAppSession({ headers: await headers() });
 
   const { id } = await context.params;
   const existing = await getWorkspaceAppForUser(id, session.user.id);
@@ -120,10 +114,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
 }
 
 export async function DELETE(_request: NextRequest, context: RouteContext) {
-  const session = await auth.api.getSession({ headers: await headers() });
-  if (!session) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const session = await getAppSession({ headers: await headers() });
 
   const { id } = await context.params;
   const existing = await getWorkspaceAppForUser(id, session.user.id);

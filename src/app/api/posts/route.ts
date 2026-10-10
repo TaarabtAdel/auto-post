@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
+import { getAppSession } from "@/lib/app-session";
 import { headers } from "next/headers";
 import { db } from "@/lib/db";
 import { post, postMedia } from "@/db/schema/post";
@@ -21,12 +21,9 @@ interface MediaInput {
  * GET /api/posts — list posts for authenticated user
  */
 export async function GET() {
-  const session = await auth.api.getSession({
+  const session = await getAppSession({
     headers: await headers(),
   });
-  if (!session) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
 
   const posts = await db
     .select({
@@ -96,12 +93,9 @@ export async function GET() {
  * Body: { content, facebookPageId?, media?: MediaInput[] }
  */
 export async function POST(request: NextRequest) {
-  const session = await auth.api.getSession({
+  const session = await getAppSession({
     headers: await headers(),
   });
-  if (!session) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
 
   // Rate limit: 30 posts / min / user
   const limited = checkRateLimit(postsLimiter, session.user.id);

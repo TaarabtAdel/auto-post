@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
+import { getAppSession } from "@/lib/app-session";
 import { headers } from "next/headers";
 import { writeFile, mkdir } from "fs/promises";
 import { join } from "path";
@@ -56,12 +56,9 @@ function getFileExtension(mimeType: string): string {
  * Returns file metadata including the serve path.
  */
 export async function POST(request: NextRequest) {
-  const session = await auth.api.getSession({
+  const session = await getAppSession({
     headers: await headers(),
   });
-  if (!session) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
 
   // Rate limit: 20 uploads / min / user
   const limited = checkRateLimit(uploadLimiter, session.user.id);

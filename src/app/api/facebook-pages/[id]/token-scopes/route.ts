@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
+import { getAppSession } from "@/lib/app-session";
 import { headers } from "next/headers";
 import { db } from "@/lib/db";
 import { facebookPage } from "@/db/schema/facebook-page";
@@ -20,10 +20,7 @@ const TRACKED_SCOPES = [
  * GET /api/facebook-pages/[id]/token-scopes — debug_token scopes on stored Page token
  */
 export async function GET(_request: NextRequest, { params }: Params) {
-  const session = await auth.api.getSession({ headers: await headers() });
-  if (!session) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const session = await getAppSession({ headers: await headers() });
 
   const { id } = await params;
 

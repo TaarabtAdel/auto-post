@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
+import { getAppSession } from "@/lib/app-session";
 import { headers } from "next/headers";
 import { renewPageTokenFromStored, renewPageTokensFromUserToken } from "@/lib/renew-page-tokens";
 
@@ -11,10 +11,7 @@ type Params = { params: Promise<{ id: string }> };
  * Tuỳ chọn body: { userAccessToken } — luồng thủ công như /pages/renew-token.
  */
 export async function POST(request: NextRequest, { params }: Params) {
-  const session = await auth.api.getSession({ headers: await headers() });
-  if (!session) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const session = await getAppSession({ headers: await headers() });
 
   const { id } = await params;
 

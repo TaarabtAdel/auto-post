@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
+import { getAppSession } from "@/lib/app-session";
 import { headers } from "next/headers";
 import {
   renewPageTokensAuto,
@@ -16,10 +16,7 @@ import { eq } from "drizzle-orm";
  * Manual: { userAccessToken, workspaceAppId, pageIds? }
  */
 export async function POST(request: NextRequest) {
-  const session = await auth.api.getSession({ headers: await headers() });
-  if (!session) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const session = await getAppSession({ headers: await headers() });
 
   let body: {
     userAccessToken?: string;
