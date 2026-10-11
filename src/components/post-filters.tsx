@@ -31,6 +31,7 @@ interface PostData {
   pages: PostPageMeta[];
   imageCount: number;
   videoCount: number;
+  mediaFiles: { fileName: string; fileType: string }[];
 }
 
 interface StatusCounts {
@@ -58,7 +59,7 @@ const FILTER_TABS = [
   { key: "failed", label: "Thất bại" },
 ] as const;
 
-function formatDate(dateStr: string | null) {
+function formatDate(dateStr: string | null, withSeconds = false) {
   if (!dateStr) return "—";
   return new Date(dateStr).toLocaleString("vi-VN", {
     day: "2-digit",
@@ -66,6 +67,7 @@ function formatDate(dateStr: string | null) {
     year: "numeric",
     hour: "2-digit",
     minute: "2-digit",
+    ...(withSeconds ? { second: "2-digit" } : {}),
   });
 }
 
@@ -247,19 +249,6 @@ export function PostFilters({
                             },
                           ]
                         : [];
-                  const timeLabel =
-                    p.status === "posted" && p.postedAt
-                      ? formatDate(p.postedAt)
-                      : p.scheduledAt
-                        ? formatDate(p.scheduledAt)
-                        : formatDate(p.createdAt);
-                  const timeHint =
-                    p.status === "posted"
-                      ? "Đã đăng"
-                      : p.scheduledAt
-                        ? "Hẹn giờ"
-                        : "Tạo lúc";
-
                   return (
                     <tr key={p.id} className="hover:bg-gray-50/80 align-top">
                       <td className="px-4 py-3 max-w-xs">
@@ -325,14 +314,45 @@ export function PostFilters({
                           {statusInfo.label}
                         </span>
                       </td>
-                      <td className="px-4 py-3 whitespace-nowrap text-gray-600 text-xs">
-                        <span className="text-gray-400 block">{timeHint}</span>
-                        {timeLabel}
+                      <td className="px-4 py-3 min-w-[168px] text-gray-800 text-xs leading-relaxed">
+                        <div className="space-y-1">
+                          <p>
+                            <span className="text-gray-500">Ngày tạo:</span>{" "}
+                            {formatDate(p.createdAt, true)}
+                          </p>
+                          {p.scheduledAt ? (
+                            <p>
+                              <span className="text-gray-500">Hẹn giờ:</span>{" "}
+                              {formatDate(p.scheduledAt, true)}
+                            </p>
+                          ) : null}
+                          {p.postedAt ? (
+                            <p>
+                              <span className="text-gray-500">Ngày đăng:</span>{" "}
+                              {formatDate(p.postedAt, true)}
+                            </p>
+                          ) : null}
+                        </div>
                       </td>
-                      <td className="px-4 py-3 whitespace-nowrap text-gray-500 text-xs">
-                        {p.imageCount > 0 && <span>{p.imageCount} ảnh </span>}
-                        {p.videoCount > 0 && <span>{p.videoCount} video</span>}
-                        {p.imageCount === 0 && p.videoCount === 0 && "—"}
+                      <td className="px-4 py-3 min-w-[120px] max-w-[220px] text-xs text-gray-600">
+                        {p.mediaFiles.length === 0 ? (
+                          "—"
+                        ) : (
+                          <ul className="space-y-0.5">
+                            {p.mediaFiles.map((m, i) => (
+                              <li
+                                key={`${m.fileName}-${i}`}
+                                className="truncate"
+                                title={`${m.fileType === "video" ? "Video" : "Ảnh"}: ${m.fileName}`}
+                              >
+                                <span className="text-gray-400">
+                                  {m.fileType === "video" ? "video · " : "ảnh · "}
+                                </span>
+                                {m.fileName}
+                              </li>
+                            ))}
+                          </ul>
+                        )}
                       </td>
                       <td className="px-4 py-3 whitespace-nowrap text-right">
                         <div className="flex flex-wrap items-center justify-end gap-1.5">

@@ -44,12 +44,19 @@ export default async function PostsPage() {
 
   // Get media counts
   const postIds = posts.map((p) => p.id);
-  let mediaList: { postId: string; fileType: string }[] = [];
+  let mediaList: {
+    postId: string;
+    fileType: string;
+    fileName: string;
+    sortOrder: number;
+  }[] = [];
   if (postIds.length > 0) {
     mediaList = await db
       .select({
         postId: postMedia.postId,
         fileType: postMedia.fileType,
+        fileName: postMedia.fileName,
+        sortOrder: postMedia.sortOrder,
       })
       .from(postMedia)
       .where(inArray(postMedia.postId, postIds));
@@ -87,7 +94,9 @@ export default async function PostsPage() {
 
   // Prepare data for client component
   const postsWithMeta = posts.map((p) => {
-    const postMediaItems = mediaList.filter((m) => m.postId === p.id);
+    const postMediaItems = mediaList
+      .filter((m) => m.postId === p.id)
+      .sort((a, b) => a.sortOrder - b.sortOrder);
     const postPages = pagesByPost.get(p.id) ?? [];
     const primaryPageId =
       postPages[0]?.facebookPageId ?? p.facebookPageId ?? null;
@@ -107,6 +116,10 @@ export default async function PostsPage() {
       fbPostId: p.fbPostId,
       imageCount: postMediaItems.filter((m) => m.fileType === "image").length,
       videoCount: postMediaItems.filter((m) => m.fileType === "video").length,
+      mediaFiles: postMediaItems.map((m) => ({
+        fileName: m.fileName,
+        fileType: m.fileType,
+      })),
     };
   });
 
