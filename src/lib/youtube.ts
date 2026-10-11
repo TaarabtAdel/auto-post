@@ -270,22 +270,53 @@ export async function downloadYouTubeVideoWithFallback(
   throw lastErr ?? new Error("Không tải được video YouTube.");
 }
 
-export async function listYouTubeDownloads(userDir: string): Promise<
+async function listYtInFolder(
+  absDir: string,
+  relPrefix: string
+): Promise<
   Array<{
     fileName: string;
     fileSize: number;
     mtime: number;
+    storageKey: string;
   }>
 > {
-  if (!existsSync(userDir)) return [];
-  const names = await readdir(userDir);
+  if (!existsSync(absDir)) return [];
+  const names = await readdir(absDir);
   const rows = await Promise.all(
     names
       .filter((n) => n.startsWith("yt-") && /\.(mp4|mkv|webm)$/i.test(n))
       .map(async (fileName) => {
-        const st = await stat(join(userDir, fileName));
-        return { fileName, fileSize: st.size, mtime: st.mtimeMs };
+        const st = await stat(join(absDir, fileName));
+        const storageKey = relPrefix ? `${relPrefix}/${fileName}` : fileName;
+        return { fileName, fileSize: st.size, mtime: st.mtimeMs, storageKey };
       })
   );
-  return rows.sort((a, b) => b.mtime - a.mtime);
+  return rows;
+}
+
+/** Quét `uploads/videos/{userId}/` và legacy. */
+export async function listYouTubeDownloads(userId: string): Promise<
+  Array<{
+    fileName: string;
+    fileSize: number;
+    mtime: number;
+    storageKey: string;
+  }>
+> {
+  const { uploadsRoot } = await import("@/lib/upload-storage");
+  const root = uploadsRoot();
+  const userRoot = join(root, userId);
+  const [newRows, legacyUserVideos, legacyRoot] = await Promise.all([
+    listYtInFolder(join(root, "videos", userId), `videos/${userId}`),
+    listYtInFolder(join(userRoot, "videos"), `${userId}/videos`),
+    listYtInFolder(userRoot, userId),
+  ]);
+  const seen = new Set<string>();
+  const merged = [...newRows, ...legacyUserVideos, ...legacyRoot].filter((r) => {
+    if (seen.has(r.storageKey)) return false;
+    seen.add(r.storageKey);
+    return true;
+  });
+  return merged.sort((a, b) => b.mtime - a.mtime);
 }

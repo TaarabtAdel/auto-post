@@ -24,6 +24,10 @@ async function runCronTick(source: "startup" | "interval") {
       const processed = await drainPublishQueue(STARTUP_CATCHUP_MAX);
       cronLog(`startup — đã xử lý bài quá hạn`, { processed });
     } else {
+      const { processDueAutoCampaigns } = await import(
+        "@/lib/auto-campaign-processor"
+      );
+      await processDueAutoCampaigns();
       await processPublishQueueTick();
     }
     cronLog(`tick xong (${source})`);

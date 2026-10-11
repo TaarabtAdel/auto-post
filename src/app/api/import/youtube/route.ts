@@ -29,18 +29,20 @@ async function requireUser() {
 export async function GET() {
   const user = await requireUser();
 
-  const userDir = join(process.cwd(), "uploads", user.id);
-  const files = await listYouTubeDownloads(userDir);
+  const files = await listYouTubeDownloads(user.id);
   return NextResponse.json({
-    files: files.map((f) => ({
-      fileName: f.fileName,
-      filePath: `${user.id}/${f.fileName}`,
-      fileSize: f.fileSize,
-      mimeType: "video/mp4",
-      fileType: "video",
-      url: uploadMediaPublicUrl(`${user.id}/${f.fileName}`),
-      mtime: f.mtime,
-    })),
+    files: files.map((f) => {
+      const filePath = `${user.id}/${f.storageKey}`;
+      return {
+        fileName: f.fileName,
+        filePath,
+        fileSize: f.fileSize,
+        mimeType: "video/mp4",
+        fileType: "video",
+        url: uploadMediaPublicUrl(filePath),
+        mtime: f.mtime,
+      };
+    }),
   });
 }
 
@@ -99,8 +101,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ info });
     }
 
-    const userDir = join(process.cwd(), "uploads", user.id);
-    await mkdir(userDir, { recursive: true });
+    const { ensureUserBucket, UPLOAD_BUCKETS } = await import("@/lib/upload-storage");
+    const userDir = await ensureUserBucket(user.id, UPLOAD_BUCKETS.videos);
     const downloaded = await downloadYouTubeVideoWithFallback(url, userDir, quality);
     const rel = relative(join(process.cwd(), "uploads"), downloaded.filePath).replace(
       /\\/g,

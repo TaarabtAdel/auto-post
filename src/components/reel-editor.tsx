@@ -13,9 +13,10 @@ import { parseCutRanges } from "@/lib/reel/cuts";
 import { detectFrameHoleFromImageData } from "@/lib/reel/frame-hole-core";
 import { ui } from "@/lib/dashboard-ui";
 import { FileDropHint, FileDropZone } from "@/components/file-drop-zone";
+import { BackgroundLibrary } from "@/components/background-library";
+import Link from "next/link";
 import {
   AUDIO_ACCEPT,
-  IMAGE_ACCEPT,
   uploadMediaFile,
   VIDEO_ACCEPT,
 } from "@/lib/upload-client";
@@ -162,18 +163,29 @@ export function ReelEditor() {
     return toUploadedMedia(data, kind);
   }
 
-  async function pickBackgroundFile(file: File) {
-    setUploading(true);
-    setError("");
-    try {
-      const uploaded = await uploadReelFile(file, "image");
-      setBackground(uploaded);
-      detectHoleFromUrl(uploaded.url);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Upload ảnh nền thất bại.");
-    } finally {
-      setUploading(false);
+  function applyBackgroundFromLibrary(item: {
+    filePath: string;
+    fileName: string;
+    fileSize: number;
+    url: string;
+  }) {
+    if (!item.filePath) {
+      setBackground(null);
+      return;
     }
+    setBackground({
+      filePath: item.filePath,
+      fileName: item.fileName,
+      fileType: "image",
+      url: item.url,
+      durationSec: 5,
+      trimStartSec: 0,
+      trimEndSec: 5,
+      focusX: 50,
+      focusY: 50,
+      zoom: 1,
+    });
+    detectHoleFromUrl(item.url);
   }
 
   async function pickSourceVideoFile(file: File) {
@@ -471,37 +483,19 @@ export function ReelEditor() {
           {tab === "media" && (
             <div className="space-y-5">
               <div>
-                <p className="text-sm font-medium text-gray-700 mb-2">Ảnh nền (khung)</p>
-                <FileDropZone
-                  accept={IMAGE_ACCEPT}
-                  disabled={uploading}
+                <div className="flex flex-wrap items-center gap-2 mb-2">
+                  <p className="text-sm font-medium text-gray-700">Ảnh nền (khung)</p>
+                  <Link href="/backgrounds" className="text-xs text-blue-600 underline">
+                    Quản lý ảnh nền
+                  </Link>
+                </div>
+                <BackgroundLibrary
                   compact
-                  onFiles={(files) => {
-                    const file = files[0];
-                    if (file) void pickBackgroundFile(file);
-                  }}
-                >
-                  <FileDropHint
-                    busy={uploading}
-                    extra={
-                      background
-                        ? `Đã chọn: ${background.fileName}`
-                        : "JPG, PNG, GIF, WebP"
-                    }
-                  />
-                </FileDropZone>
-                {background && (
-                  <button
-                    type="button"
-                    className="text-xs text-red-600 hover:underline mt-1"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setBackground(null);
-                    }}
-                  >
-                    Xóa ảnh nền
-                  </button>
-                )}
+                  selectMode
+                  previewLabel="Ảnh nền reel"
+                  selectedPath={background?.filePath ?? null}
+                  onSelect={(item) => applyBackgroundFromLibrary(item)}
+                />
               </div>
 
               <div>

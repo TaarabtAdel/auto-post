@@ -7,6 +7,12 @@ import { join, normalize, relative } from "path";
 import { reelLimiter, checkRateLimit } from "@/lib/rate-limit";
 import { uploadMediaPublicUrl } from "@/lib/upload-media-url";
 import { composeReel } from "@/lib/reel/compose";
+import {
+  UPLOAD_BUCKETS,
+  ensureUserBucket,
+  resolveOwnedUploadAbsPath,
+  uploadRelativePath,
+} from "@/lib/upload-storage";
 import { composeFramedCuts } from "@/lib/reel/compose-framed";
 import { buildReelOutputFileName } from "@/lib/reel/output-filename";
 import { parseCutRanges } from "@/lib/reel/cuts";
@@ -26,20 +32,7 @@ export const maxDuration = 600;
 const ASPECTS = new Set<AspectRatioId>(["9:16", "1:1", "16:9"]);
 
 function resolveOwnedPath(userId: string, rel: string): string {
-  const cleaned = rel.replace(/^\/+/, "").replace(/^uploads\//, "");
-  if (cleaned.includes("..") || !cleaned.startsWith(`${userId}/`)) {
-    throw new Error("File không thuộc tài khoản này.");
-  }
-  const abs = normalize(join(process.cwd(), "uploads", cleaned));
-  const root = join(process.cwd(), "uploads", userId);
-  const relToUser = relative(root, abs);
-  if (relToUser.startsWith("..") || relToUser.includes("..")) {
-    throw new Error("Đường dẫn file không hợp lệ.");
-  }
-  if (!existsSync(abs)) {
-    throw new Error("Không tìm thấy file media. Hãy tải lên lại.");
-  }
-  return abs;
+  return resolveOwnedUploadAbsPath(userId, rel);
 }
 
 function num(v: unknown, fallback: number, min: number, max: number): number {
@@ -233,8 +226,7 @@ export async function POST(request: NextRequest) {
 
   const userId = session.user.id;
   try {
-    const userDir = join(process.cwd(), "uploads", userId);
-    await mkdir(userDir, { recursive: true });
+    const reelsDir = await ensureUserBucket(userId, UPLOAD_BUCKETS.reels);
 
     if (framedMode) {
       const clips = await composeFramedCuts({
@@ -245,12 +237,12 @@ export async function POST(request: NextRequest) {
         aspectRatio,
         flipVideo: body.flipVideo === true,
         videoVolume: num(body.videoVolume, 1, 0, 1),
-        outputDir: userDir,
+        outputDir: reelsDir,
       });
       const videos = await Promise.all(
         clips.map(async (c) => {
           const fileName = c.outputPath.split(/[/\\]/).pop() || "reel.mp4";
-          const rel = `${userId}/${fileName}`;
+          const rel = uploadRelativePath(UPLOAD_BUCKETS.reels, userId, fileName);
           const st = await stat(c.outputPath);
           return {
             filePath: rel,
@@ -268,8 +260,8 @@ export async function POST(request: NextRequest) {
     }
 
     const outName = buildReelOutputFileName({ stt: 1 });
-    const rel = `${userId}/${outName}`;
-    const absOut = join(userDir, outName);
+    const rel = uploadRelativePath(UPLOAD_BUCKETS.reels, userId, outName);
+    const absOut = join(reelsDir, outName);
 
     const { durationSec } = await composeReel(
       renderRequest,

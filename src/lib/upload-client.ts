@@ -18,9 +18,20 @@ export type UploadedMediaPayload = {
   url: string;
 };
 
-export async function uploadMediaFile(file: File): Promise<UploadedMediaPayload> {
+export type UploadBucketHint =
+  | "background"
+  | "video"
+  | "reel"
+  | "audio"
+  | "image";
+
+export async function uploadMediaFile(
+  file: File,
+  opts?: { bucket?: UploadBucketHint }
+): Promise<UploadedMediaPayload> {
   const formData = new FormData();
   formData.append("file", file);
+  if (opts?.bucket) formData.append("bucket", opts.bucket);
   const res = await fetch("/api/uploads", { method: "POST", body: formData });
   const data = (await res.json()) as UploadedMediaPayload & { error?: string };
   if (!res.ok) {

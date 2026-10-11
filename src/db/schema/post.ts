@@ -14,7 +14,7 @@ export const post = sqliteTable("post", {
   content: text("content").notNull().default(""),
   /** Bình luận đầu tiên dưới bài (Page comment sau khi publish). */
   firstComment: text("first_comment"),
-  status: text("status").notNull().default("draft"), // draft | queued | scheduled | posting | posted | failed
+  status: text("status").notNull().default("draft"), // draft | queued | test_scheduled | scheduled | posting | posted | failed
   batchId: text("batch_id"),
   scheduledAt: integer("scheduled_at", { mode: "timestamp_ms" }),
   postedAt: integer("posted_at", { mode: "timestamp_ms" }),

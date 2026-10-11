@@ -22,6 +22,12 @@ export async function register() {
     const { migratePageCategoriesSchema } = await import("@/lib/page-categories");
     migratePageCategoriesSchema();
 
+    const { migrateAutoCampaignSchema } = await import("@/lib/auto-campaign-schema");
+    migrateAutoCampaignSchema();
+
+    const { ensureUploadBucketRoots } = await import("@/lib/upload-storage");
+    await ensureUploadBucketRoots();
+
     const { startScheduler } = await import("@/lib/scheduler");
     startScheduler();
   } else {

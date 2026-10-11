@@ -1,8 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { readFile, stat } from "fs/promises";
-import { resolve, normalize } from "path";
+import { resolve, normalize, sep } from "path";
 import { normalizeUploadRelativePath } from "@/lib/upload-media-url";
 import { getAppSession } from "@/lib/app-session";
+import {
+  isOwnedUploadPath,
+  ownerUserIdFromUploadPath,
+} from "@/lib/upload-storage";
 import { headers } from "next/headers";
 
 const MIME_TYPES: Record<string, string> = {
@@ -25,30 +29,29 @@ type Params = { params: Promise<{ path: string[] }> };
 export async function GET(_request: NextRequest, { params }: Params) {
   const { path: pathSegments } = await params;
 
-  if (!pathSegments || pathSegments.length < 2) {
+  if (!pathSegments?.length) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
-  // Auth check
   const session = await getAppSession({
     headers: await headers(),
   });
 
-  // Ownership check: first segment must be the user's ID
-  const requestedUserId = pathSegments[0];
-  if (requestedUserId !== session.user.id) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
-
-  // Path traversal protection: resolve and validate
-  const uploadsDir = resolve(process.cwd(), "uploads");
   const requestedPath = normalize(
     normalizeUploadRelativePath(pathSegments.join("/"))
   );
+  const ownerId = ownerUserIdFromUploadPath(requestedPath);
+  if (!ownerId || ownerId !== session.user.id) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+  if (!isOwnedUploadPath(session.user.id, requestedPath)) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
+  const uploadsDir = resolve(process.cwd(), "uploads");
   const filePath = resolve(uploadsDir, requestedPath);
 
-  // Ensure resolved path is within uploads directory
-  if (!filePath.startsWith(uploadsDir)) {
+  if (!filePath.startsWith(uploadsDir + sep) && filePath !== uploadsDir) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 

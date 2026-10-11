@@ -6,6 +6,12 @@ import { join } from "path";
 import { randomBytes } from "crypto";
 import { uploadLimiter, checkRateLimit } from "@/lib/rate-limit";
 import { uploadMediaPublicUrl } from "@/lib/upload-media-url";
+import {
+  ensureUserBucket,
+  inferBucketFromMime,
+  parseUploadBucket,
+  uploadRelativePath,
+} from "@/lib/upload-storage";
 
 const ALLOWED_IMAGE_TYPES = [
   "image/jpeg",
@@ -75,6 +81,11 @@ export async function POST(request: NextRequest) {
   }
 
   const file = formData.get("file") as File | null;
+  const bucketRaw = formData.get("bucket");
+  const explicitBucket = parseUploadBucket(
+    typeof bucketRaw === "string" ? bucketRaw : null
+  );
+
   if (!file) {
     return NextResponse.json(
       { error: "File là bắt buộc." },
@@ -112,12 +123,10 @@ export async function POST(request: NextRequest) {
   const timestamp = Date.now();
   const random = randomBytes(8).toString("hex");
   const fileName = `${timestamp}-${random}.${ext}`;
-  const userDir = join(process.cwd(), "uploads", session.user.id);
+  const bucket = inferBucketFromMime(file.type, explicitBucket);
+  const userDir = await ensureUserBucket(session.user.id, bucket);
   const filePath = join(userDir, fileName);
-  const relativePath = `${session.user.id}/${fileName}`;
-
-  // Ensure directory exists
-  await mkdir(userDir, { recursive: true });
+  const relativePath = uploadRelativePath(bucket, session.user.id, fileName);
 
   // Write file
   const buffer = Buffer.from(await file.arrayBuffer());

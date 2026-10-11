@@ -46,6 +46,10 @@ interface StatusCounts {
 const STATUS_LABELS: Record<string, { label: string; color: string }> = {
   draft: { label: "Nháp", color: "bg-gray-100 text-gray-700" },
   queued: { label: "Trong hàng đợi", color: "bg-amber-100 text-amber-800" },
+  test_scheduled: {
+    label: "Test (không đăng FB)",
+    color: "bg-violet-100 text-violet-800",
+  },
   scheduled: { label: "Đã hẹn giờ", color: "bg-yellow-100 text-yellow-700" },
   posting: { label: "Đang đăng", color: "bg-blue-100 text-blue-700" },
   posted: { label: "Đã đăng", color: "bg-green-100 text-green-700" },
