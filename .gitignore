@@ -38,21 +38,10 @@ cookies.txt
 .env.production
 !.env.production.example
 
-# uploads — bỏ qua media user; giữ bucket gốc + .gitkeep
-/uploads/*
+# uploads — bỏ qua mọi media user (video/ảnh/reel); chỉ README + .gitkeep bucket
+/uploads/**
 !/uploads/README.md
-!/uploads/backgrounds/
-!/uploads/backgrounds/.gitkeep
-!/uploads/videos/
-!/uploads/videos/.gitkeep
-!/uploads/reels/
-!/uploads/reels/.gitkeep
-!/uploads/audio/
-!/uploads/audio/.gitkeep
-!/uploads/images/
-!/uploads/images/.gitkeep
-!/uploads/tmp-reel/
-!/uploads/tmp-reel/.gitkeep
+!/uploads/**/.gitkeep
 
 # logs
 /logs
