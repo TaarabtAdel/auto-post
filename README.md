@@ -120,6 +120,38 @@ npm run postinstall  # chmod ffmpeg + tải yt-dlp (youtube-dl-exec)
 
 ## Xử lý lỗi thường gặp
 
+### `npm ci` / Docker build: cảnh báo deprecated / unmaintained
+
+Thường là **cảnh báo** từ dependency (eslint, v.v.), **không chặn** cài đặt. Bỏ qua nếu `npm run build` và `npm start` vẫn OK.
+
+### Docker build fail ở `postinstall` / yt-dlp
+
+Image dùng **`yt-dlp` từ apt** + `YOUTUBE_DL_SKIP_DOWNLOAD=1` khi `npm ci` (không tải GitHub lúc build). Build lại:
+
+```bash
+docker compose build --no-cache
+```
+
+### Live VPS: npm + pm2 (tránh postinstall GitHub)
+
+```bash
+sudo apt-get update
+sudo apt-get install -y nodejs npm python3 make g++ yt-dlp
+# Node 22: dùng nodesource hoặc nvm — xem README mục cài đặt
+
+cd auto-post
+cp .env.production.example .env
+export YOUTUBE_DL_SKIP_DOWNLOAD=1
+npm ci
+mkdir -p node_modules/youtube-dl-exec/bin
+ln -sf "$(command -v yt-dlp)" node_modules/youtube-dl-exec/bin/yt-dlp
+node scripts/postinstall.js
+npx drizzle-kit push
+npm run build
+PORT=3100 pm2 start npm --name autopost -- start
+pm2 save
+```
+
 ### `Thiếu yt-dlp` / YouTube import không chạy
 
 `youtube-dl-exec` cần binary `yt-dlp` sau install:

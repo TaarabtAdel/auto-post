@@ -1,14 +1,20 @@
 FROM node:22-bookworm-slim AS base
 
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends python3 make g++ \
+  && apt-get install -y --no-install-recommends \
+    python3 make g++ ca-certificates curl \
+    yt-dlp \
   && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
 FROM base AS deps
 COPY package.json package-lock.json ./
-RUN npm ci
+# Tránh tải yt-dlp từ GitHub lúc build (hay timeout); dùng gói apt + symlink.
+ENV YOUTUBE_DL_SKIP_DOWNLOAD=1
+RUN npm ci \
+  && mkdir -p node_modules/youtube-dl-exec/bin \
+  && ln -sf /usr/bin/yt-dlp node_modules/youtube-dl-exec/bin/yt-dlp
 
 FROM base AS builder
 COPY --from=deps /app/node_modules ./node_modules
