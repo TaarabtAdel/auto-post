@@ -1,13 +1,16 @@
+const path = require("path");
+
 module.exports = {
   apps: [
     {
-      name: 'autopost',
-      script: 'npm',
-      args: 'run start', // Hoặc file chạy chính của bạn, ví dụ: 'dist/index.js'
+      name: "autopost",
+      cwd: __dirname,
+      script: path.join(__dirname, "node_modules/next/dist/bin/next"),
+      args: "start",
       env: {
         PORT: 3100,
-        TZ: 'Asia/Ho_Chi_Minh',
-        NODE_ENV: 'production',
+        NODE_ENV: "production",
+        TZ: "Asia/Ho_Chi_Minh",
       },
     },
   ],
