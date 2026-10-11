@@ -2,8 +2,9 @@ import { mkdir, readdir, stat } from "fs/promises";
 import { existsSync } from "fs";
 import { join } from "path";
 import { randomBytes } from "crypto";
-import youtubedl from "youtube-dl-exec";
+import { create } from "youtube-dl-exec";
 import { parseDurationSec, probeFile } from "@/lib/reel/ffmpeg";
+import { assertYtdlpAvailable, resolveYtdlpBinaryPath } from "@/lib/ytdlp-binary";
 import {
   isYouTubeUrl,
   normalizeYouTubeUrl,
@@ -47,19 +48,21 @@ export interface YouTubeDownloadResult {
 
 const MAX_BYTES = 1024 * 1024 * 1024;
 
-function ensureYtDlp(): void {
-  const ytDlp = join(
-    process.cwd(),
-    "node_modules",
-    "youtube-dl-exec",
-    "bin",
-    process.platform === "win32" ? "yt-dlp.exe" : "yt-dlp"
-  );
-  if (!existsSync(ytDlp)) {
-    throw new Error(
-      "Thiếu yt-dlp. Chạy: node node_modules/youtube-dl-exec/scripts/postinstall.js"
-    );
+let ytdlpExec: ReturnType<typeof create> | null = null;
+
+function getYtdlp() {
+  if (!ytdlpExec) {
+    ytdlpExec = create(resolveYtdlpBinaryPath());
   }
+  return ytdlpExec;
+}
+
+function ytdlpCookieFlags(): Record<string, string> {
+  const cookies = process.env.YT_DLP_COOKIES_FILE?.trim();
+  if (cookies && existsSync(cookies)) {
+    return { cookies };
+  }
+  return {};
 }
 
 function formatForQuality(quality: YouTubeQuality): string {
@@ -89,18 +92,19 @@ export async function searchYouTubeVideos(opts: {
 }): Promise<YouTubeSearchHit[]> {
   const query = opts.query.trim();
   if (!query) throw new Error("Nhập từ khóa tìm kiếm.");
-  ensureYtDlp();
+  assertYtdlpAvailable();
   const limit = Math.min(50, Math.max(5, opts.limit ?? 25));
   const minD = opts.minDurationSec ?? 15 * 60;
   const maxD = opts.maxDurationSec ?? 100 * 60;
 
   try {
-    const raw = (await youtubedl(`ytsearch${limit}:${query}`, {
+    const raw = (await getYtdlp()(`ytsearch${limit}:${query}`, {
       dumpSingleJson: true,
       skipDownload: true,
       flatPlaylist: true,
       noWarnings: true,
       noCheckCertificates: true,
+      ...ytdlpCookieFlags(),
     })) as {
       entries?: Array<{
         id?: string;
@@ -140,15 +144,16 @@ export async function searchYouTubeVideos(opts: {
 export async function getYouTubeInfo(rawUrl: string): Promise<YouTubeInfo> {
   if (!isYouTubeUrl(rawUrl)) throw new Error("Chỉ hỗ trợ link YouTube.");
   const url = normalizeYouTubeUrl(rawUrl);
-  ensureYtDlp();
+  assertYtdlpAvailable();
 
   try {
-    const info = (await youtubedl(url, {
+    const info = (await getYtdlp()(url, {
       dumpSingleJson: true,
       skipDownload: true,
       noPlaylist: true,
       noWarnings: true,
       noCheckCertificates: true,
+      ...ytdlpCookieFlags(),
     })) as {
       id?: string;
       title?: string;
@@ -196,14 +201,14 @@ export async function downloadYouTubeVideo(
     throw new Error("Chỉ hỗ trợ link YouTube.");
   }
   const url = normalizeYouTubeUrl(rawUrl);
-  ensureYtDlp();
+  assertYtdlpAvailable();
   await mkdir(destDir, { recursive: true });
 
   const stamp = `yt-${Date.now()}-${randomBytes(6).toString("hex")}`;
   const outTpl = join(destDir, `${stamp}.%(ext)s`);
 
   try {
-    await youtubedl(url, {
+    await getYtdlp()(url, {
       noPlaylist: true,
       noWarnings: true,
       noCheckCertificates: true,
@@ -213,6 +218,7 @@ export async function downloadYouTubeVideo(
       maxFilesize: "1G",
       output: outTpl,
       windowsFilenames: true,
+      ...ytdlpCookieFlags(),
     });
   } catch (err) {
     throw mapError(err);

@@ -20,7 +20,7 @@ export function describeDeleteImpact(status: string): {
         "Bài trên Facebook KHÔNG bị gỡ — chỉ xóa bản ghi trong hệ thống. Các Fanpage khác trong cùng đợt đăng không bị ảnh hưởng.",
     };
   }
-  if (["queued", "scheduled", "draft", "failed"].includes(status)) {
+  if (["queued", "scheduled", "test_scheduled", "draft", "failed"].includes(status)) {
     return {
       allow: true,
       title: "Xóa bài này?",

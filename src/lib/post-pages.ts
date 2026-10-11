@@ -52,6 +52,13 @@ export function migratePostPagesSchema() {
       ALTER TABLE publish_queue ADD COLUMN facebook_page_id TEXT REFERENCES facebook_page(id);
     `);
   }
+
+  const postCols = sqlite
+    .prepare(`PRAGMA table_info(post)`)
+    .all() as { name: string }[];
+  if (!postCols.some((c) => c.name === "first_comment")) {
+    sqlite.exec(`ALTER TABLE post ADD COLUMN first_comment TEXT;`);
+  }
 }
 
 /** Copy post.facebook_page_id → junction nếu chưa có row. */

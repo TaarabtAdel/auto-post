@@ -11,6 +11,7 @@ module.exports = {
         PORT: 3100,
         NODE_ENV: "production",
         TZ: "Asia/Ho_Chi_Minh",
+        YT_DLP_PATH: path.join(__dirname, ".venv/bin/yt-dlp"),
       },
     },
   ],

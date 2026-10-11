@@ -37,6 +37,7 @@ export async function POST(request: NextRequest) {
     firstComment?: string;
     wizardStep?: number;
     runMode?: string;
+    autoDownloadVideo?: boolean;
   };
 
   try {
@@ -65,6 +66,7 @@ export async function POST(request: NextRequest) {
     firstComment: body.firstComment?.trim() || null,
     wizardStep: body.wizardStep ?? 0,
     runMode: parseRunMode(body.runMode),
+    autoDownloadVideo: body.autoDownloadVideo ? 1 : 0,
     status: "draft",
   });
 

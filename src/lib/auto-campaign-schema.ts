@@ -51,6 +51,7 @@ export function migrateAutoCampaignSchema() {
   addColumnIfMissing(sqlite, "auto_campaign", "schedule_hours", "TEXT");
   addColumnIfMissing(sqlite, "auto_campaign", "execute_at", "INTEGER");
   addColumnIfMissing(sqlite, "auto_campaign", "run_mode", "TEXT NOT NULL DEFAULT 'live'");
+  addColumnIfMissing(sqlite, "auto_campaign", "auto_download_video", "INTEGER NOT NULL DEFAULT 0");
 
   sqlite.exec(`
     CREATE INDEX IF NOT EXISTS auto_campaign_planned_idx ON auto_campaign (status, execute_at);

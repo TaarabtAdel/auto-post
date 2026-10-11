@@ -10,6 +10,7 @@ Quản lý và tự động đăng bài lên Facebook Page: hẹn giờ, queue, 
 |------------|-----------|
 | Node.js | 20+ (khuyến nghị 22) |
 | npm | 9+ |
+| Python 3 | *(VPS/pm2)* cho `npm run setup:python` / yt-dlp |
 | Docker | *(tuỳ chọn)* Docker Desktop / Compose v2 |
 | Dung lượng ổ đĩa | ≥ **10 GB trống** (build Next + image Docker + `node_modules`) |
 
@@ -78,12 +79,131 @@ docker compose up -d --build
 
 ---
 
+## Deploy production (VPS + pm2)
+
+Khuyến nghị cho server Linux (VN): **Node 22**, **pm2**, **Python 3** (yt-dlp trong `.venv`), timezone **Asia/Ho_Chi_Minh** (đã set trong `ecosystem.config.js`).
+
+### 1. Chuẩn bị máy
+
+```bash
+# Ubuntu/Debian (ví dụ)
+sudo apt-get update
+sudo apt-get install -y git curl python3 python3-venv build-essential
+
+# Node 22 — dùng nvm hoặc NodeSource, ví dụ nvm:
+# curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | bash
+# nvm install 22 && nvm use 22
+
+sudo npm install -g pm2
+```
+
+Tạo thư mục app (ví dụ `/var/www/auto-post`), clone/pull code, tạo user chạy app nếu cần.
+
+### 2. Biến môi trường
+
+Tạo file `.env` ở thư mục gốc project (LF, không CRLF):
+
+```bash
+cp .env.production.example .env   # nếu có; không thì tạo tay theo bảng bên dưới
+```
+
+**Production bắt buộc chỉnh:**
+
+| Biến | Ví dụ |
+|------|--------|
+| `BETTER_AUTH_URL` | `https://post.example.com` (URL public, HTTPS) |
+| `BETTER_AUTH_SECRET` | `openssl rand -hex 32` |
+| `ENCRYPTION_KEY` | `openssl rand -hex 32` (64 ký tự hex) |
+
+Facebook OAuth redirect: `{BETTER_AUTH_URL}/api/auth/facebook/callback` — khai báo đúng trên [Facebook App](https://developers.facebook.com/apps/).
+
+### 3. Cài dependency & yt-dlp (Python)
+
+```bash
+cd /path/to/auto-post
+
+# Tránh postinstall tải GitHub trên VPS yếu mạng — dùng Python venv (khuyến nghị):
+export YOUTUBE_DL_SKIP_DOWNLOAD=1
+npm ci
+
+# yt-dlp qua pip vào .venv (app ưu tiên .venv/bin/yt-dlp)
+npm run setup:python
+
+# ffmpeg + quyền thực thi (nếu cần)
+npm run postinstall
+```
+
+Thứ tự ưu tiên binary yt-dlp khi app chạy: `YT_DLP_PATH` (trong `ecosystem.config.js`) → `.venv/bin/yt-dlp` → binary npm (`youtube-dl-exec`).
+
+Tuỳ chọn cookie YouTube (video bị chặn): thêm vào `ecosystem.config.js` → `env`:
+
+```js
+YT_DLP_COOKIES_FILE: "/path/to/cookies.txt",  // không commit file này
+```
+
+### 4. Database & build
+
+```bash
+npx drizzle-kit push    # lần đầu / sau đổi schema Drizzle
+npm run build
+```
+
+**Lưu ý:** Khi `npm start` / pm2 khởi động, `instrumentation` còn tự chạy migration SQLite (AUTO campaign, system log, `post.first_comment`, …). Không cần script riêng nếu app start được.
+
+### 5. Chạy pm2
+
+File [`ecosystem.config.js`](ecosystem.config.js) — port **3100**, `TZ=Asia/Ho_Chi_Minh`, `YT_DLP_PATH` → `.venv/bin/yt-dlp`.
+
+```bash
+pm2 start ecosystem.config.js
+pm2 save
+pm2 startup    # làm theo hướng dẫn in ra để tự chạy sau reboot
+```
+
+Cập nhật code sau này:
+
+```bash
+git pull
+npm ci
+npm run setup:python    # khi đổi requirements.txt hoặc lần đầu trên máy mới
+npm run build
+pm2 restart ecosystem.config.js
+```
+
+### 6. Reverse proxy (nginx)
+
+Ví dụ listen 443 → `http://127.0.0.1:3100`. Body upload lớn (video/reel): tăng `client_max_body_size` (vd. `1024m`). WebSocket không bắt buộc.
+
+### 7. Dữ liệu cần backup
+
+| Path | Nội dung |
+|------|----------|
+| `sqlite.db` (+ `-wal`, `-shm`) | Toàn bộ app DB |
+| `uploads/` | Video, reel, ảnh nền (`backgrounds/`, `videos/`, …) |
+| `.env` | Secret (backup an toàn, không public) |
+
+### 8. Kiểm tra sau deploy
+
+- Mở `{BETTER_AUTH_URL}` — đăng nhập / dashboard.
+- **`/apps`**, **`/pages`** — OAuth Page.
+- **`/auto/plans`** — plan AUTO; **`/logs`** — log cron / pipeline (Test/Live).
+- **`pm2 logs autopost`** — log terminal; AUTO in dạng `[auto] AUTO [TEST|LIVE] | Tạo bài viết | …`.
+- Thử tải YouTube: **`/youtube`** hoặc AUTO bước **Video & render** + **Tự tải**.
+
+### 9. Uploads trên disk
+
+Layout bucket (tự tạo lúc start): `uploads/backgrounds/{userId}/`, `uploads/videos/{userId}/`, `uploads/reels/{userId}/`, …  
+Media serve qua **`/api/uploads/...`** (cần session), không expose thư mục raw ra internet.
+
+---
+
 ## Sau khi cài — luồng dùng cơ bản
 
 1. **`/apps`** — Tạo Facebook App (App ID + Secret). Tuỳ chọn: **User Token** (Explorer) cho giới hạn quốc gia Page.
 2. **`/pages`** — Kết nối Page (OAuth hoặc dán Page token). Gia hạn token / kiểm tra scopes / quốc gia.
 3. **`/posts/new`** — Tạo bài, hẹn giờ hoặc queue.
-4. Cron nội bộ (instrumentation) xử lý hàng đợi publish.
+4. Cron nội bộ (instrumentation) xử lý hàng đợi publish + plan AUTO (`/auto/plans`).
+5. **`/auto/plans`** — lập plan → hẹn giờ hoặc **Run now**; Test/Live; log tại **`/logs`**.
 
 Redirect OAuth Facebook: `{BETTER_AUTH_URL}/api/auth/facebook/callback`
 
@@ -101,6 +221,9 @@ Redirect OAuth Facebook: `{BETTER_AUTH_URL}/api/auth/facebook/callback`
 | `AI_API_*` | *(Tuỳ chọn)* Generate nội dung | OpenAI-compatible |
 | `N8N_API_KEY` | *(Tuỳ chọn)* API publish từ n8n | `openssl rand -hex 24` |
 | `FFMPEG_PATH` | *(Tuỳ chọn)* Đường dẫn ffmpeg hệ thống | Nếu không dùng `ffmpeg-static` |
+| `YT_DLP_PATH` | *(Tuỳ chọn)* Binary yt-dlp | pm2: set trong `ecosystem.config.js`; mặc định `.venv/bin/yt-dlp` |
+| `YT_DLP_COOKIES_FILE` | *(Tuỳ chọn)* File cookies Netscape | Video YouTube private/age-gate |
+| `YOUTUBE_DL_SKIP_DOWNLOAD=1` | Bỏ qua tải yt-dlp lúc `npm ci` | Dùng với `npm run setup:python` trên VPS |
 
 App Secret / token Page lưu **mã hóa** bằng `ENCRYPTION_KEY`. Backup `.env` cùng `sqlite.db` khi đổi máy.
 
@@ -114,6 +237,7 @@ npm run build        # Production build
 npm start            # Chạy bản build
 npm run lint         # ESLint
 npm run postinstall  # chmod ffmpeg + tải yt-dlp (youtube-dl-exec)
+npm run setup:python # .venv + pip install yt-dlp (khuyến nghị VPS/pm2)
 ```
 
 ---
@@ -132,29 +256,17 @@ Image dùng **`yt-dlp` từ apt** + `YOUTUBE_DL_SKIP_DOWNLOAD=1` khi `npm ci` (k
 docker compose build --no-cache
 ```
 
-### Live VPS: npm + pm2 (tránh postinstall GitHub)
-
-```bash
-sudo apt-get update
-sudo apt-get install -y nodejs npm python3 make g++ yt-dlp
-# Node 22: dùng nodesource hoặc nvm — xem README mục cài đặt
-
-cd auto-post
-cp .env.production.example .env
-export YOUTUBE_DL_SKIP_DOWNLOAD=1
-npm ci
-mkdir -p node_modules/youtube-dl-exec/bin
-ln -sf "$(command -v yt-dlp)" node_modules/youtube-dl-exec/bin/yt-dlp
-node scripts/postinstall.js
-npx drizzle-kit push
-npm run build
-PORT=3100 pm2 start npm --name autopost -- start
-pm2 save
-```
-
 ### `Thiếu yt-dlp` / YouTube import không chạy
 
-`youtube-dl-exec` cần binary `yt-dlp` sau install:
+Trên VPS ưu tiên **Python venv** (xem mục **Deploy production**):
+
+```bash
+npm run setup:python
+.venv/bin/yt-dlp --version
+pm2 restart ecosystem.config.js
+```
+
+Hoặc binary npm (cần mạng GitHub lúc postinstall):
 
 ```bash
 npm run postinstall
@@ -162,7 +274,11 @@ npm run postinstall
 node node_modules/youtube-dl-exec/scripts/postinstall.js
 ```
 
-Cần mạng ổn định lần đầu tải. Trong Docker: rebuild image (`npm ci` chạy `postinstall`).
+Trong Docker: image thường dùng `yt-dlp` apt + `YOUTUBE_DL_SKIP_DOWNLOAD=1` — rebuild image nếu thiếu.
+
+### AUTO / SQLite: `no such column` sau khi pull code
+
+Restart app để `instrumentation` chạy migration (`auto_campaign`, `system_log`, …). Nếu vẫn lỗi: backup `sqlite.db`, chạy `npx drizzle-kit push`, restart pm2.
 
 ### `spawn .../ffmpeg-static/ffmpeg EACCES`
 
@@ -212,7 +328,7 @@ Scope nằm trên **Page token trong DB**, không phải tick Explorer. **OAuth 
 
 ### Media preview / URL upload
 
-File phục vụ qua **`/api/uploads/{userId}/{file}`** (cần session local). Đường dẫn disk: `uploads/...` — không mở trực tiếp `/uploads/...` trừ khi dùng rewrite (app hỗ trợ `/uploads` → `/api/uploads`).
+File phục vụ qua **`/api/uploads/{bucket}/{userId}/...`** hoặc legacy `{userId}/...` (cần session). Đường dẫn disk: `uploads/backgrounds/`, `uploads/videos/`, … — không public trực tiếp ra internet.
 
 ### `docker compose restart` không thấy code mới
 
@@ -232,7 +348,7 @@ docker compose up -d --build
 | DB | SQLite WAL + Drizzle |
 | Auth | Better Auth (tắt email/password; bypass user local) |
 | Facebook | Graph API v21, OAuth |
-| Video | ffmpeg-static, youtube-dl-exec (yt-dlp) |
+| Video | ffmpeg-static, yt-dlp (`.venv` pip hoặc youtube-dl-exec) |
 
 ## Cấu trúc (rút gọn)
 
@@ -240,7 +356,9 @@ docker compose up -d --build
 src/app/(dashboard)/   # UI: dashboard, apps, pages, posts, reels, youtube
 src/app/api/           # REST API
 src/lib/               # auth, facebook, publish, reel, youtube, ...
-scripts/postinstall.js # ffmpeg chmod + yt-dlp
+scripts/postinstall.js      # ffmpeg chmod + yt-dlp npm
+scripts/setup-python-ytdlp.sh  # .venv + pip yt-dlp
+ecosystem.config.js         # pm2: port 3100, TZ VN, YT_DLP_PATH
 uploads/               # Media (gitignore)
 sqlite.db              # Database (gitignore)
 ```

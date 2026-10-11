@@ -3,8 +3,14 @@ import { autoCampaign, type AutoCampaignRow } from "@/db/schema/auto-campaign";
 import { post, postMedia } from "@/db/schema/post";
 import { facebookPage } from "@/db/schema/facebook-page";
 import { eq, and, inArray } from "drizzle-orm";
-import { cronLog } from "@/lib/cron-log";
 import { formatInAppTimezone } from "@/lib/scheduled-at";
+import { downloadYouTubeVideoWithFallback } from "@/lib/youtube";
+import {
+  AUTO_PIPELINE_STEPS,
+  autoPipelineMessage,
+  autoStepLog,
+  type AutoPipelineStepLabel,
+} from "@/lib/auto-pipeline-log";
 import { randomBytes } from "crypto";
 import { stat } from "fs/promises";
 import { join } from "path";
@@ -34,13 +40,9 @@ import {
   type AutoCampaignRunMode,
 } from "@/lib/auto-campaign-json";
 
-function autoPipelineLog(
-  runMode: AutoCampaignRunMode,
-  message: string,
-  detail?: Record<string, unknown>
-) {
-  const tag = runMode === "test" ? "[TEST]" : "[LIVE]";
-  cronLog(`AUTO ${tag} ${message}`, detail);
+function stepError(step: AutoPipelineStepLabel, cause: unknown): Error {
+  const msg = cause instanceof Error ? cause.message : String(cause);
+  return new Error(`[${step}] ${msg}`);
 }
 
 export async function getOwnedCampaign(
@@ -62,8 +64,13 @@ export function validateCampaignPlan(c: AutoCampaignRow): string | null {
   if (parseCutRanges(c.times).length !== 3) {
     return "Cần đúng 3 khung thời gian cắt clip.";
   }
-  if (!c.backgroundPath || !c.sourceVideoPath) {
-    return "Thiếu ảnh nền hoặc video full.";
+  if (!c.backgroundPath) {
+    return "Thiếu ảnh nền.";
+  }
+  if (!c.sourceVideoPath?.trim()) {
+    if (!c.autoDownloadVideo || !c.youtubeUrl?.trim()) {
+      return "Thiếu video full (upload hoặc bật «Tự tải» + link YouTube).";
+    }
   }
   const pageIds = parsePageIdsJson(c.facebookPageIds);
   if (pageIds.length === 0) {
@@ -75,6 +82,41 @@ export function validateCampaignPlan(c: AutoCampaignRow): string | null {
   return null;
 }
 
+/** Tải YouTube vào bucket videos nếu plan bật «Tự tải» và chưa có file. */
+export async function ensureCampaignSourceVideo(
+  campaign: AutoCampaignRow
+): Promise<AutoCampaignRow> {
+  if (campaign.sourceVideoPath?.trim()) {
+    return campaign;
+  }
+  if (!campaign.autoDownloadVideo || !campaign.youtubeUrl?.trim()) {
+    throw new Error("Thiếu video full (upload hoặc bật Tự tải).");
+  }
+
+  const userDir = await ensureUserBucket(campaign.userId, UPLOAD_BUCKETS.videos);
+  const downloaded = await downloadYouTubeVideoWithFallback(
+    campaign.youtubeUrl,
+    userDir,
+    "best"
+  );
+  const rel = uploadRelativePath(
+    UPLOAD_BUCKETS.videos,
+    campaign.userId,
+    downloaded.fileName
+  );
+
+  await db
+    .update(autoCampaign)
+    .set({ sourceVideoPath: rel })
+    .where(eq(autoCampaign.id, campaign.id));
+
+  const next = await getOwnedCampaign(campaign.id, campaign.userId);
+  if (!next?.sourceVideoPath) {
+    throw new Error("Không lưu được đường dẫn video sau khi tải.");
+  }
+  return next;
+}
+
 export async function createCampaignPosts(campaign: AutoCampaignRow): Promise<{
   postId1: string;
   postId2: string;
@@ -82,6 +124,10 @@ export async function createCampaignPosts(campaign: AutoCampaignRow): Promise<{
   batchId: string;
 }> {
   if (campaign.postId1 && campaign.postId2 && campaign.postId3) {
+    const firstComment = campaign.firstComment?.trim() || null;
+    for (const postId of [campaign.postId1, campaign.postId2, campaign.postId3]) {
+      await db.update(post).set({ firstComment }).where(eq(post.id, postId));
+    }
     return {
       postId1: campaign.postId1,
       postId2: campaign.postId2,
@@ -283,10 +329,11 @@ export async function scheduleCampaignPosts(
       .where(eq(post.id, postId));
 
     if (isTest) {
-      autoPipelineLog(runMode, "Giả lập đăng Fanpage (không gọi Facebook API)", {
+      autoStepLog(runMode, AUTO_PIPELINE_STEPS.PUBLISH, "TIẾN TRÌNH", {
         campaignId: campaign.id,
+        sub: "Giả lập đăng (Test — không gọi Facebook API)",
         postId,
-        segment: i + 1,
+        segment: `${i + 1}/3`,
         scheduledAt: formatInAppTimezone(scheduledDate.toISOString(), true),
         pages: pageRows.map((p) => ({
           id: p.id,
@@ -303,10 +350,11 @@ export async function scheduleCampaignPosts(
         batchId,
         scheduledAt: scheduledDate,
       });
-      autoPipelineLog(runMode, "Đã hẹn queue đăng Fanpage", {
+      autoStepLog(runMode, AUTO_PIPELINE_STEPS.PUBLISH, "TIẾN TRÌNH", {
         campaignId: campaign.id,
+        sub: "Đã hẹn queue đăng Fanpage",
         postId,
-        segment: i + 1,
+        segment: `${i + 1}/3`,
         scheduledAt: formatInAppTimezone(scheduledDate.toISOString(), true),
         pageCount: pageIds.length,
       });
@@ -332,55 +380,104 @@ export async function executeCampaignPipeline(campaign: AutoCampaignRow): Promis
     .set({ status: "running", errorMessage: null })
     .where(eq(autoCampaign.id, campaign.id));
 
-  autoPipelineLog(runMode, "Bắt đầu pipeline", {
+  autoPipelineMessage(runMode, "Pipeline — BẮT ĐẦU", {
     campaignId: campaign.id,
     name: campaign.name,
   });
+
+  let activeStep: AutoPipelineStepLabel = AUTO_PIPELINE_STEPS.POSTS;
 
   try {
     let row = await getOwnedCampaign(campaign.id, campaign.userId);
     if (!row) throw new Error("Campaign không tồn tại.");
 
     const planErr = validateCampaignPlan(row);
-    if (planErr) throw new Error(planErr);
+    if (planErr) {
+      activeStep = AUTO_PIPELINE_STEPS.POSTS;
+      throw new Error(planErr);
+    }
 
-    autoPipelineLog(runMode, "Tạo 3 bài viết (DB)", { campaignId: campaign.id });
-    await createCampaignPosts(row);
-    row = (await getOwnedCampaign(campaign.id, campaign.userId))!;
-    autoPipelineLog(runMode, "Đã tạo 3 bài", {
+    activeStep = AUTO_PIPELINE_STEPS.POSTS;
+    autoStepLog(runMode, activeStep, "BẮT ĐẦU", {
       campaignId: campaign.id,
-      postIds: [row.postId1, row.postId2, row.postId3],
+      name: row.name,
     });
+    try {
+      await createCampaignPosts(row);
+      row = (await getOwnedCampaign(campaign.id, campaign.userId))!;
+      autoStepLog(runMode, activeStep, "XONG", {
+        campaignId: campaign.id,
+        postIds: [row.postId1, row.postId2, row.postId3],
+      });
+    } catch (e) {
+      autoStepLog(runMode, activeStep, "LỖI", {
+        campaignId: campaign.id,
+        error: e instanceof Error ? e.message : String(e),
+      });
+      throw stepError(activeStep, e);
+    }
 
-    autoPipelineLog(runMode, "Render 3 reel (ffmpeg)", {
+    row = await ensureCampaignSourceVideo(row);
+
+    activeStep = AUTO_PIPELINE_STEPS.RENDER;
+    autoStepLog(runMode, activeStep, "BẮT ĐẦU", {
       campaignId: campaign.id,
       backgroundPath: row.backgroundPath,
       sourceVideoPath: row.sourceVideoPath,
     });
-    await renderCampaignReels(row, { aspectRatio: "9:16" });
-    row = (await getOwnedCampaign(campaign.id, campaign.userId))!;
-    autoPipelineLog(runMode, "Đã render 3 reel", {
-      campaignId: campaign.id,
-      reelPaths: [row.reelPath1, row.reelPath2, row.reelPath3],
-    });
+    try {
+      await renderCampaignReels(row, { aspectRatio: "9:16" });
+      row = (await getOwnedCampaign(campaign.id, campaign.userId))!;
+      autoStepLog(runMode, activeStep, "XONG", {
+        campaignId: campaign.id,
+        reelPaths: [row.reelPath1, row.reelPath2, row.reelPath3],
+      });
+    } catch (e) {
+      autoStepLog(runMode, activeStep, "LỖI", {
+        campaignId: campaign.id,
+        error: e instanceof Error ? e.message : String(e),
+      });
+      throw stepError(activeStep, e);
+    }
 
-    autoPipelineLog(runMode, "Gắn lịch / queue đăng", { campaignId: campaign.id });
-    await scheduleCampaignPosts(row);
+    activeStep = AUTO_PIPELINE_STEPS.PUBLISH;
+    autoStepLog(runMode, activeStep, "BẮT ĐẦU", {
+      campaignId: campaign.id,
+      runMode,
+      note:
+        runMode === "test"
+          ? "Test: giả lập đăng Fanpage (log only)"
+          : "Live: hẹn queue đăng Fanpage thật",
+    });
+    try {
+      await scheduleCampaignPosts(row);
+      autoStepLog(runMode, activeStep, "XONG", {
+        campaignId: campaign.id,
+        segments: 3,
+      });
+    } catch (e) {
+      autoStepLog(runMode, activeStep, "LỖI", {
+        campaignId: campaign.id,
+        error: e instanceof Error ? e.message : String(e),
+      });
+      throw stepError(activeStep, e);
+    }
 
     await db
       .update(autoCampaign)
       .set({ status: "completed", errorMessage: null })
       .where(eq(autoCampaign.id, campaign.id));
 
-    autoPipelineLog(runMode, "Pipeline hoàn tất", { campaignId: campaign.id });
+    autoPipelineMessage(runMode, "Pipeline — XONG", { campaignId: campaign.id });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     await db
       .update(autoCampaign)
       .set({ status: "failed", errorMessage: msg })
       .where(eq(autoCampaign.id, campaign.id));
-    autoPipelineLog(parseRunMode(campaign.runMode), "Pipeline LỖI", {
+    autoPipelineMessage(parseRunMode(campaign.runMode), "Pipeline — LỖI", {
       campaignId: campaign.id,
+      step: activeStep,
       error: msg,
     });
     throw e;

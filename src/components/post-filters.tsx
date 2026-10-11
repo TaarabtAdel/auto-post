@@ -103,7 +103,7 @@ export function PostFilters({
       ? posts
       : filter === "scheduled"
         ? posts.filter((p) =>
-            ["scheduled", "queued", "posting"].includes(p.status)
+            ["scheduled", "queued", "test_scheduled", "posting"].includes(p.status)
           )
         : posts.filter((p) => p.status === filter);
 

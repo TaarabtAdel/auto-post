@@ -79,6 +79,8 @@ export function AutoWizard({ initialCampaignId = null }: AutoWizardProps) {
   const [backgroundName, setBackgroundName] = useState("");
   const [sourceVideoPath, setSourceVideoPath] = useState<string | null>(null);
   const [sourceVideoName, setSourceVideoName] = useState("");
+  const [autoDownloadVideo, setAutoDownloadVideo] = useState(false);
+  const [downloadingYt, setDownloadingYt] = useState(false);
 
   const [apps, setApps] = useState<AppOption[]>([]);
   const [allPages, setAllPages] = useState<PageOption[]>([]);
@@ -109,6 +111,7 @@ export function AutoWizard({ initialCampaignId = null }: AutoWizardProps) {
     setCaption3(c.caption3);
     setBackgroundPath(c.backgroundPath);
     setSourceVideoPath(c.sourceVideoPath);
+    setAutoDownloadVideo(Boolean(c.autoDownloadVideo));
     setBackgroundName(c.backgroundPath?.split("/").pop() ?? "");
     setSourceVideoName(c.sourceVideoPath?.split("/").pop() ?? "");
     if (c.workspaceAppId) setWorkspaceAppId(c.workspaceAppId);
@@ -136,6 +139,7 @@ export function AutoWizard({ initialCampaignId = null }: AutoWizardProps) {
     setCaption3("");
     setSourceVideoPath(null);
     setSourceVideoName("");
+    setAutoDownloadVideo(false);
     setBackgroundPath(null);
     setBackgroundName("");
     setExecuteAtLocal(nextAppTzDatetimeLocal(8));
@@ -210,6 +214,7 @@ export function AutoWizard({ initialCampaignId = null }: AutoWizardProps) {
       caption2: caption2.trim(),
       caption3: caption3.trim(),
       sourceVideoPath,
+      autoDownloadVideo,
       backgroundPath,
       workspaceAppId: workspaceAppId || null,
       facebookPageIds: [...selectedPageIds],
@@ -218,8 +223,11 @@ export function AutoWizard({ initialCampaignId = null }: AutoWizardProps) {
     };
   }
 
-  async function saveToDb(wizardStep: number): Promise<AutoCampaignDto> {
-    const body = payloadFromForm(wizardStep);
+  async function saveToDb(
+    wizardStep: number,
+    extra?: Record<string, unknown>
+  ): Promise<AutoCampaignDto> {
+    const body = { ...payloadFromForm(wizardStep), ...extra };
     if (campaign?.id) {
       const res = await fetch(`/api/auto/campaigns/${campaign.id}`, {
         method: "PATCH",
@@ -244,10 +252,14 @@ export function AutoWizard({ initialCampaignId = null }: AutoWizardProps) {
     return created;
   }
 
-  async function goNext(nextStep: number, validate?: () => string | null) {
+  async function goNext(
+    nextStep: number,
+    validate?: () => string | null | Promise<string | null>,
+    beforeSave?: () => Promise<Record<string, unknown> | null>
+  ) {
     setError("");
     if (validate) {
-      const msg = validate();
+      const msg = await validate();
       if (msg) {
         setError(msg);
         return;
@@ -259,7 +271,8 @@ export function AutoWizard({ initialCampaignId = null }: AutoWizardProps) {
     }
     setBusy(true);
     try {
-      await saveToDb(nextStep);
+      const patch = beforeSave ? await beforeSave() : null;
+      await saveToDb(nextStep, patch ?? undefined);
       setStep(nextStep);
       setNote("Đã lưu vào hệ thống.");
     } catch (e) {
@@ -338,6 +351,32 @@ export function AutoWizard({ initialCampaignId = null }: AutoWizardProps) {
     setNote("Đã copy link video của plan.");
     alert("Đã sao chép link. Nhấn OK để mở YTSave.");
     window.open("https://ytsave.to/en2/", "_blank", "noopener,noreferrer");
+  }
+
+  async function downloadPlanVideoYtdlp(): Promise<string> {
+    const url = youtubeUrl.trim();
+    if (!url) {
+      throw new Error("Plan chưa có link YouTube (bước 1).");
+    }
+    setDownloadingYt(true);
+    setError("");
+    try {
+      const res = await fetch("/api/import/youtube", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url, action: "download", quality: "best" }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "yt-dlp không tải được video.");
+      const filePath = data.filePath as string;
+      setSourceVideoPath(filePath);
+      setSourceVideoName(data.fileName || data.title || "video.mp4");
+      if (data.title && !youtubeTitle.trim()) setYoutubeTitle(data.title);
+      setNote("Đã tải video bằng yt-dlp (Python/.venv hoặc binary hệ thống).");
+      return filePath;
+    } finally {
+      setDownloadingYt(false);
+    }
   }
 
   async function uploadSourceVideo(file: File) {
@@ -707,32 +746,81 @@ export function AutoWizard({ initialCampaignId = null }: AutoWizardProps) {
             <div>
               <div className="flex flex-wrap items-center gap-2 mb-2">
                 <p className="text-sm font-medium">Video full</p>
-                <button
-                  type="button"
-                  className={ui.btnSm}
-                  disabled={!youtubeUrl.trim()}
-                  onClick={() => void openYtsaveForPlanVideo()}
-                >
-                  Tải video
-                </button>
               </div>
-              <p className="text-xs text-gray-500 mb-2">
-                Copy link YouTube của plan → mở YTSave → tải file rồi upload lại đây.
-              </p>
-              <FileDropZone
-                accept={VIDEO_ACCEPT}
-                disabled={uploading || locked}
-                compact
-                onFiles={(files) => {
-                  const f = files[0];
-                  if (f) void uploadSourceVideo(f);
-                }}
-              >
-                <FileDropHint
-                  busy={uploading}
-                  extra={sourceVideoName || sourceVideoPath || "MP4, MOV"}
+              <label className="flex items-start gap-2 text-sm mb-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  className="mt-1"
+                  checked={autoDownloadVideo}
+                  disabled={locked}
+                  onChange={(e) => {
+                    setAutoDownloadVideo(e.target.checked);
+                    if (e.target.checked) {
+                      setNote(
+                        "Tự tải: dùng yt-dlp (npm run setup:python). Có thể tải ngay hoặc khi bấm Lưu & tiếp / lúc AUTO chạy."
+                      );
+                    }
+                  }}
                 />
-              </FileDropZone>
+                <span>
+                  <strong>Tự tải</strong> — yt-dlp từ link YouTube của plan (bước 1), không
+                  cần upload tay
+                </span>
+              </label>
+              {autoDownloadVideo ? (
+                <div className="space-y-2">
+                  <p className="text-xs text-gray-600 break-all">
+                    Link: {youtubeUrl.trim() || "— (quay bước 1 nhập YouTube)"}
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      className={ui.btnSmPrimary}
+                      disabled={
+                        locked || downloadingYt || busy || !youtubeUrl.trim()
+                      }
+                      onClick={() => void downloadPlanVideoYtdlp().catch((e) => setError(e instanceof Error ? e.message : "Tải thất bại."))}
+                    >
+                      {downloadingYt ? "Đang tải yt-dlp…" : "Tải ngay (yt-dlp)"}
+                    </button>
+                  </div>
+                  <p className={`text-xs ${ui.hint}`}>
+                    {sourceVideoPath
+                      ? `Đã có file: ${sourceVideoName || sourceVideoPath}`
+                      : "Chưa có file — bấm «Tải ngay» hoặc «Lưu & tiếp» sẽ tự tải."}
+                  </p>
+                </div>
+              ) : (
+                <>
+                  <div className="flex flex-wrap gap-2 mb-2">
+                    <button
+                      type="button"
+                      className={ui.btnSm}
+                      disabled={!youtubeUrl.trim()}
+                      onClick={() => void openYtsaveForPlanVideo()}
+                    >
+                      YTSave (thủ công)
+                    </button>
+                  </div>
+                  <p className="text-xs text-gray-500 mb-2">
+                    Hoặc kéo thả / chọn file MP4, MOV từ máy.
+                  </p>
+                  <FileDropZone
+                    accept={VIDEO_ACCEPT}
+                    disabled={uploading || locked}
+                    compact
+                    onFiles={(files) => {
+                      const f = files[0];
+                      if (f) void uploadSourceVideo(f);
+                    }}
+                  >
+                    <FileDropHint
+                      busy={uploading}
+                      extra={sourceVideoName || sourceVideoPath || "MP4, MOV"}
+                    />
+                  </FileDropZone>
+                </>
+              )}
             </div>
           </div>
           <button
@@ -740,11 +828,23 @@ export function AutoWizard({ initialCampaignId = null }: AutoWizardProps) {
             className={ui.btnPrimary}
             disabled={busy || locked}
             onClick={() =>
-              void goNext(4, () => {
-                if (!backgroundPath) return "Upload ảnh nền.";
-                if (!sourceVideoPath) return "Upload video full.";
-                return null;
-              })
+              void goNext(
+                4,
+                async () => {
+                  if (!backgroundPath) return "Chọn hoặc upload ảnh nền.";
+                  if (autoDownloadVideo) {
+                    if (!youtubeUrl.trim()) return "Cần link YouTube ở bước 1.";
+                  } else if (!sourceVideoPath) {
+                    return "Upload video full hoặc bật «Tự tải».";
+                  }
+                  return null;
+                },
+                async () => {
+                  if (!autoDownloadVideo || sourceVideoPath) return null;
+                  const filePath = await downloadPlanVideoYtdlp();
+                  return { sourceVideoPath: filePath };
+                }
+              )
             }
           >
             Lưu & tiếp — Chọn Fanpage →

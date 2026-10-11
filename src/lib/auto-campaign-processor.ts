@@ -2,6 +2,8 @@ import { db } from "@/lib/db";
 import { autoCampaign } from "@/db/schema/auto-campaign";
 import { eq, and, lte, asc } from "drizzle-orm";
 import { cronLog } from "@/lib/cron-log";
+import { autoPipelineMessage } from "@/lib/auto-pipeline-log";
+import { parseRunMode } from "@/lib/auto-campaign-json";
 import {
   executeCampaignPipeline,
   getOwnedCampaign,
@@ -54,16 +56,17 @@ export async function runPlannedAutoCampaign(
     trigger === "manual" ? "Run now (thủ công)" : "bắt đầu pipeline (cron)";
 
   try {
-    cronLog(`AUTO campaign — ${logLabel}`, {
+    const runMode = parseRunMode(row.runMode);
+    autoPipelineMessage(runMode, trigger === "manual" ? "Run now" : "Cron kích hoạt", {
       campaignId,
-      runMode: row.runMode ?? "live",
+      trigger,
     });
+    cronLog(`AUTO — ${logLabel}`, { campaignId, runMode });
     await executeCampaignPipeline(row);
-    cronLog("AUTO campaign — pipeline xong", { campaignId });
     return { ok: true };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    cronLog("AUTO campaign — pipeline LỖI", { campaignId, error: msg });
+    cronLog("AUTO — pipeline thất bại", { campaignId, error: msg });
     return { ok: false, error: msg, httpStatus: 500 };
   } finally {
     autoPipelineRunning = false;

@@ -10,6 +10,15 @@ import { parseRunMode } from "@/lib/auto-campaign-json";
 
 type Params = { params: Promise<{ id: string }> };
 
+function trimText(value: string | null | undefined): string {
+  return (value ?? "").trim();
+}
+
+function trimNullable(value: string | null | undefined): string | null {
+  const t = trimText(value);
+  return t || null;
+}
+
 export async function GET(_request: NextRequest, { params }: Params) {
   const session = await getAppSession({ headers: await headers() });
   const { id } = await params;
@@ -53,6 +62,7 @@ export async function PATCH(request: NextRequest, { params }: Params) {
     facebookPageIds?: string[];
     scheduleHours?: number[];
     runMode?: string;
+    autoDownloadVideo?: boolean;
   };
 
   try {
@@ -62,31 +72,31 @@ export async function PATCH(request: NextRequest, { params }: Params) {
   }
 
   const updates: Record<string, unknown> = {};
-  if (body.name !== undefined) updates.name = body.name.trim() || row.name;
-  if (body.youtubeUrl !== undefined) updates.youtubeUrl = body.youtubeUrl.trim() || null;
+  if (body.name !== undefined) updates.name = trimText(body.name) || row.name;
+  if (body.youtubeUrl !== undefined) updates.youtubeUrl = trimNullable(body.youtubeUrl);
   if (body.youtubeVideoId !== undefined) {
-    updates.youtubeVideoId = body.youtubeVideoId.trim() || null;
+    updates.youtubeVideoId = trimNullable(body.youtubeVideoId);
   }
-  if (body.youtubeTitle !== undefined) updates.youtubeTitle = body.youtubeTitle.trim() || null;
-  if (body.rawGemini !== undefined) updates.rawGemini = body.rawGemini.trim() || null;
+  if (body.youtubeTitle !== undefined) updates.youtubeTitle = trimNullable(body.youtubeTitle);
+  if (body.rawGemini !== undefined) updates.rawGemini = trimNullable(body.rawGemini);
   if (body.firstComment !== undefined) {
-    updates.firstComment = body.firstComment?.trim() || null;
+    updates.firstComment = trimNullable(body.firstComment);
   }
   if (body.wizardStep !== undefined && Number.isFinite(body.wizardStep)) {
     updates.wizardStep = Math.max(0, Math.min(6, Math.floor(body.wizardStep)));
   }
-  if (body.times !== undefined) updates.times = body.times.trim();
-  if (body.caption1 !== undefined) updates.caption1 = body.caption1.trim();
-  if (body.caption2 !== undefined) updates.caption2 = body.caption2.trim();
-  if (body.caption3 !== undefined) updates.caption3 = body.caption3.trim();
+  if (body.times !== undefined) updates.times = trimText(body.times);
+  if (body.caption1 !== undefined) updates.caption1 = trimText(body.caption1);
+  if (body.caption2 !== undefined) updates.caption2 = trimText(body.caption2);
+  if (body.caption3 !== undefined) updates.caption3 = trimText(body.caption3);
   if (body.sourceVideoPath !== undefined) {
-    updates.sourceVideoPath = body.sourceVideoPath?.trim() || null;
+    updates.sourceVideoPath = trimNullable(body.sourceVideoPath);
   }
   if (body.backgroundPath !== undefined) {
-    updates.backgroundPath = body.backgroundPath?.trim() || null;
+    updates.backgroundPath = trimNullable(body.backgroundPath);
   }
   if (body.workspaceAppId !== undefined) {
-    updates.workspaceAppId = body.workspaceAppId?.trim() || null;
+    updates.workspaceAppId = trimNullable(body.workspaceAppId);
   }
   if (body.facebookPageIds !== undefined) {
     const { stringifyPageIds } = await import("@/lib/auto-campaign-json");
@@ -98,6 +108,9 @@ export async function PATCH(request: NextRequest, { params }: Params) {
   }
   if (body.runMode !== undefined) {
     updates.runMode = parseRunMode(body.runMode);
+  }
+  if (body.autoDownloadVideo !== undefined) {
+    updates.autoDownloadVideo = body.autoDownloadVideo ? 1 : 0;
   }
 
   if (Object.keys(updates).length > 0) {

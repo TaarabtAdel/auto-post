@@ -38,6 +38,8 @@ export const autoCampaign = sqliteTable("auto_campaign", {
   postId2: text("post_id2"),
   postId3: text("post_id3"),
   sourceVideoPath: text("source_video_path"),
+  /** 1 = tải video bằng yt-dlp (link plan) thay vì upload tay */
+  autoDownloadVideo: integer("auto_download_video").notNull().default(0),
   backgroundPath: text("background_path"),
   reelPath1: text("reel_path1"),
   reelPath2: text("reel_path2"),

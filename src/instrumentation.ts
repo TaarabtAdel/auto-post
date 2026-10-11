@@ -25,6 +25,9 @@ export async function register() {
     const { migrateAutoCampaignSchema } = await import("@/lib/auto-campaign-schema");
     migrateAutoCampaignSchema();
 
+    const { migrateSystemLogSchema } = await import("@/lib/system-log-schema");
+    migrateSystemLogSchema();
+
     const { ensureUploadBucketRoots } = await import("@/lib/upload-storage");
     await ensureUploadBucketRoots();
 

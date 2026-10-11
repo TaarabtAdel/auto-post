@@ -18,6 +18,10 @@ import {
 import { describeDeleteImpact } from "@/lib/post-delete-impact";
 import { deleteMediaFilesForPost } from "@/lib/post-media-cleanup";
 import { uploadMediaPublicUrl } from "@/lib/upload-media-url";
+import {
+  isPostEditable,
+  shouldEnqueuePublishOnSave,
+} from "@/lib/post-editable-status";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -100,16 +104,11 @@ export async function PATCH(request: NextRequest, { params }: Params) {
     return NextResponse.json({ error: "Post không tồn tại." }, { status: 404 });
   }
 
-  if (
-    p.status !== "draft" &&
-    p.status !== "scheduled" &&
-    p.status !== "queued" &&
-    p.status !== "failed"
-  ) {
+  if (!isPostEditable(p.status)) {
     return NextResponse.json(
       {
         error:
-          "Chỉ sửa được bài nháp, trong hàng đợi, đã hẹn giờ hoặc thất bại. Bài đã đăng chỉ xem / copy sang Page khác.",
+          "Chỉ sửa được bài nháp, trong hàng đợi, hẹn giờ (kể cả Test AUTO) hoặc thất bại. Bài đã đăng chỉ xem / copy sang Page khác.",
       },
       { status: 400 }
     );
@@ -177,7 +176,7 @@ export async function PATCH(request: NextRequest, { params }: Params) {
     updates.facebookPageId = body.facebookPageIds[0] ?? null;
 
     if (
-      (p.status === "queued" || p.status === "scheduled") &&
+      shouldEnqueuePublishOnSave(p.status) &&
       p.scheduledAt &&
       body.scheduledAt === undefined
     ) {
@@ -213,16 +212,20 @@ export async function PATCH(request: NextRequest, { params }: Params) {
       const pageIds = await getFacebookPageIdsForPost(id);
       if (pageIds.length > 0) {
         const batchId = p.batchId || randomBytes(16).toString("hex");
-        updates.status = "queued";
         updates.batchId = batchId;
 
-        await cancelPendingQueueForPost(id);
-        await enqueueScheduledPostPages({
-          userId: session.user.id,
-          postId: id,
-          batchId,
-          scheduledAt: scheduledDate,
-        });
+        if (p.status === "test_scheduled") {
+          updates.status = "test_scheduled";
+        } else {
+          updates.status = "queued";
+          await cancelPendingQueueForPost(id);
+          await enqueueScheduledPostPages({
+            userId: session.user.id,
+            postId: id,
+            batchId,
+            scheduledAt: scheduledDate,
+          });
+        }
       }
     } else {
       updates.scheduledAt = null;

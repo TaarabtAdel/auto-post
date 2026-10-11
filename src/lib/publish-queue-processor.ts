@@ -4,7 +4,7 @@ import { publishQueue } from "@/db/schema/publish-queue";
 import { eq, and, lte, asc, inArray, isNotNull } from "drizzle-orm";
 import { randomBytes } from "crypto";
 import { publishPostById } from "@/lib/publish-post";
-import { cronLog } from "@/lib/cron-log";
+import { cronLog, publishLog } from "@/lib/cron-log";
 import { appTzNowLabel } from "@/lib/scheduled-at";
 import {
   getFacebookPageIdsForPost,
@@ -358,7 +358,7 @@ export async function processPublishQueueTick(): Promise<void> {
         errorMessage: null,
       })
       .where(eq(publishQueue.id, job.id));
-    cronLog("đăng thành công", {
+    publishLog("Đăng Fanpage | XONG", {
       postId: job.postId,
       fbPostId: result.fbPostId,
       batchId: job.batchId,
@@ -372,7 +372,7 @@ export async function processPublishQueueTick(): Promise<void> {
         errorMessage: result.error || "Publish failed",
       })
       .where(eq(publishQueue.id, job.id));
-    cronLog("đăng thất bại", {
+    publishLog("Đăng Fanpage | LỖI", {
       postId: job.postId,
       error: result.error,
       batchId: job.batchId,

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   normalizeYouTubeUrl,
   parseYouTubeUrlsFromText,
@@ -53,6 +54,7 @@ function looksLikeYouTubeUrl(raw: string): boolean {
 }
 
 export function YouTubeLocVideo() {
+  const router = useRouter();
   const [query, setQuery] = useState("");
   const [urlInput, setUrlInput] = useState("");
   const [maxDur, setMaxDur] = useState("100:00");
@@ -264,7 +266,7 @@ export function YouTubeLocVideo() {
     }
   }
 
-  async function persistWatched(ids: string[], nextWatched: boolean) {
+  async function persistWatched(ids: string[], nextWatched: boolean): Promise<boolean> {
     const prev = watched;
     const optimistic = new Set(prev);
     for (const id of ids) {
@@ -282,12 +284,14 @@ export function YouTubeLocVideo() {
       if (!res.ok) {
         setWatched(prev);
         setError(data.error || "Không lưu được trạng thái đã xem.");
-        return;
+        return false;
       }
       setWatched(new Set((data.ids ?? []) as string[]));
+      return true;
     } catch {
       setWatched(prev);
       setError("Lỗi kết nối khi lưu đã xem.");
+      return false;
     }
   }
 
@@ -393,6 +397,67 @@ export function YouTubeLocVideo() {
     }
     await copyText(list.map((v) => commandFor(v, template)).join("\n\n"));
     setStatus(`Đã copy ${list.length} lệnh.`);
+  }
+
+  /** Đánh dấu đã xem → tạo plan AUTO (video đầu trong các dòng chọn) → /auto?id=… */
+  async function createAutoFromSelected() {
+    const list = selectedVideos();
+    if (list.length === 0) {
+      setError("Chọn ít nhất 1 video (cột Chọn).");
+      return;
+    }
+    const primary = list[0];
+    setBusy(true);
+    setError("");
+    setStatus("Đang đánh dấu đã xem và tạo plan AUTO…");
+    try {
+      const marked = await persistWatched(
+        list.map((v) => v.id),
+        true
+      );
+      if (!marked) {
+        setStatus("");
+        return;
+      }
+
+      let youtubeUrl = primary.url;
+      try {
+        youtubeUrl = normalizeYouTubeUrl(primary.url);
+      } catch {
+        // giữ url gốc
+      }
+
+      const res = await fetch("/api/auto/campaigns", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: (primary.title || "Campaign AUTO").slice(0, 240),
+          youtubeUrl,
+          youtubeVideoId: primary.id,
+          youtubeTitle: primary.title,
+          wizardStep: 0,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || "Không tạo được plan AUTO.");
+      }
+      const id = data.campaign?.id as string | undefined;
+      if (!id) {
+        throw new Error("Server không trả id plan.");
+      }
+      if (list.length > 1) {
+        setStatus(
+          `Đã đánh dấu ${list.length} video «Đã xem». Mở plan AUTO cho: ${primary.title}`
+        );
+      }
+      router.push(`/auto?id=${id}`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Tạo AUTO thất bại.");
+      setStatus("");
+    } finally {
+      setBusy(false);
+    }
   }
 
   function splitNameHint() {
@@ -716,6 +781,14 @@ export function YouTubeLocVideo() {
       </div>
 
       <div className="flex flex-wrap gap-2">
+        <button
+          type="button"
+          className={ui.btnPrimary}
+          disabled={busy}
+          onClick={() => void createAutoFromSelected()}
+        >
+          Tạo AUTO đã chọn
+        </button>
         <button type="button" className={ui.btnSm} onClick={copyCommands}>
           Sao chép bộ lệnh
         </button>
@@ -759,8 +832,9 @@ export function YouTubeLocVideo() {
         </button>
       </div>
       <p className="text-xs text-gray-500">
-        «Tải video đã chọn»: copy link đang chọn → OK → mở YTSave. Xóa list chỉ gỡ khỏi
-        bảng, không xóa file đã tải trước đó.
+        «Tạo AUTO đã chọn»: tick «Đã xem» cho mọi dòng đang chọn, tạo plan AUTO từ{" "}
+        <strong>video đầu tiên</strong> trong số đó → mở wizard /auto. «Tải video đã chọn»:
+        copy link → YTSave. Xóa list chỉ gỡ khỏi bảng.
       </p>
 
       {error && <div className={ui.alertError}>{error}</div>}

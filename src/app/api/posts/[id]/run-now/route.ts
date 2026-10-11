@@ -15,6 +15,7 @@ import {
   refreshPostAggregateStatus,
 } from "@/lib/post-pages";
 import { randomBytes } from "crypto";
+import { isPostEditable } from "@/lib/post-editable-status";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -33,7 +34,7 @@ export async function POST(_request: Request, { params }: Params) {
     return NextResponse.json({ error: "Post không tồn tại." }, { status: 404 });
   }
 
-  if (!["queued", "scheduled", "draft", "failed"].includes(p.status)) {
+  if (!isPostEditable(p.status)) {
     return NextResponse.json(
       { error: `Không thể chạy ngay ở trạng thái "${p.status}".` },
       { status: 400 }

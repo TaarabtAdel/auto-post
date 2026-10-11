@@ -18,6 +18,7 @@ import {
   scheduledAtToDatetimeLocal,
   scheduledAtToIso,
 } from "@/lib/scheduled-at";
+import { isPostEditable } from "@/lib/post-editable-status";
 
 interface MediaItem {
   id: string;
@@ -96,6 +97,7 @@ const STATUS_LABEL: Record<string, string> = {
   draft: "Nháp",
   queued: "Hàng đợi",
   scheduled: "Hẹn giờ",
+  test_scheduled: "Test AUTO (chưa đăng FB)",
   posting: "Đang đăng",
   posted: "Đã đăng",
   failed: "Lỗi",
@@ -135,14 +137,16 @@ export function PostEditForm({ post, apps, batchSiblings }: Props) {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
 
-  const editable = ["draft", "queued", "scheduled", "failed"].includes(post.status);
+  const editable = isPostEditable(post.status);
   const isPosted = post.status === "posted";
 
   useEffect(() => {
+    setContent(post.content);
+    setFirstComment(post.firstComment ?? "");
     setScheduledAt(
       scheduledAtToDatetimeLocal(scheduledAtToIso(post.scheduledAt))
     );
-  }, [post.id, post.scheduledAt]);
+  }, [post.id, post.content, post.firstComment, post.scheduledAt]);
 
   useEffect(() => {
     fetch("/api/facebook-pages")
