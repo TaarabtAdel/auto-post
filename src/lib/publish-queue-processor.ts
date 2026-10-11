@@ -5,6 +5,7 @@ import { eq, and, lte, asc, inArray, isNotNull } from "drizzle-orm";
 import { randomBytes } from "crypto";
 import { publishPostById } from "@/lib/publish-post";
 import { cronLog } from "@/lib/cron-log";
+import { appTzNowLabel } from "@/lib/scheduled-at";
 import {
   getFacebookPageIdsForPost,
   refreshPostAggregateStatus,
@@ -97,11 +98,11 @@ async function syncOverduePostsToQueue(): Promise<void> {
 
   cronLog("bài quá hạn chưa đăng — đưa vào queue", {
     count: overdue.length,
-    now: now.toISOString(),
+    now: appTzNowLabel(now),
     samples: overdue.slice(0, 5).map((p) => ({
       postId: p.id,
       status: p.status,
-      scheduledAt: p.scheduledAt!.toISOString(),
+      scheduledAt: appTzNowLabel(p.scheduledAt!),
     })),
   });
 
@@ -192,7 +193,7 @@ export async function repairPublishQueue(): Promise<void> {
       });
       cronLog("repair: tạo lại queue row cho post queued", {
         postId: p.id,
-        scheduledAt: p.scheduledAt.toISOString(),
+        scheduledAt: appTzNowLabel(p.scheduledAt),
       });
       continue;
     }
@@ -323,9 +324,9 @@ export async function processPublishQueueTick(): Promise<void> {
       .limit(1);
     cronLog("tick — không có job đến hạn", {
       pendingTotal: pendingCount.length,
-      now: now.toISOString(),
+      now: appTzNowLabel(now),
       nextScheduledAt: nextRow[0]?.scheduledAt
-        ? new Date(nextRow[0].scheduledAt).toISOString()
+        ? appTzNowLabel(new Date(nextRow[0].scheduledAt))
         : null,
     });
     return;
@@ -337,7 +338,7 @@ export async function processPublishQueueTick(): Promise<void> {
     postId: job.postId,
     batchId: job.batchId,
     queueOrder: job.queueOrder,
-    scheduledAt: new Date(job.scheduledAt).toISOString(),
+    scheduledAt: appTzNowLabel(new Date(job.scheduledAt)),
     overdueMinutes: overdueMs > 0 ? Math.round(overdueMs / 60_000) : 0,
   });
 
