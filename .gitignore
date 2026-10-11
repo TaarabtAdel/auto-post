@@ -20,6 +20,11 @@
 # production
 /build
 
+# local database (WAL mode creates -wal / -shm)
+/sqlite.db
+/sqlite.db-wal
+/sqlite.db-shm
+
 # misc
 .DS_Store
 *.pem
