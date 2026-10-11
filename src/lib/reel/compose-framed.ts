@@ -6,6 +6,7 @@ import type { CutRange } from "./cuts";
 import type { FrameHole } from "./frame-hole";
 import { detectFrameHole } from "./frame-hole";
 import { evenize, hasAudioStream, probeFile, runFfmpeg } from "./ffmpeg";
+import { buildReelOutputFileName } from "./output-filename";
 
 export type FramedCutResult = {
   outputPath: string;
@@ -22,7 +23,6 @@ export async function composeFramedCuts(opts: {
   flipVideo?: boolean;
   videoVolume?: number;
   outputDir: string;
-  filePrefix: string;
 }): Promise<FramedCutResult[]> {
   if (opts.cuts.length === 0) {
     throw new Error("Nhập ít nhất 1 đoạn cắt, ví dụ 01:15-01:42,09:10-09:35");
@@ -53,7 +53,10 @@ export async function composeFramedCuts(opts: {
   try {
     for (const [i, cut] of opts.cuts.entries()) {
       const durationSec = Math.max(0.2, cut.endSec - cut.startSec);
-      const outName = `${opts.filePrefix}-${i + 1}-${cut.label.replace(/[:]/g, "")}.mp4`;
+      const outName = buildReelOutputFileName({
+        stt: i + 1,
+        segmentLabel: cut.label,
+      });
       const outputPath = join(opts.outputDir, outName);
       const filter =
         `[0:v]scale=${canvasW}:${canvasH}:force_original_aspect_ratio=increase,` +

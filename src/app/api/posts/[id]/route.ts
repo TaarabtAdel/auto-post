@@ -208,25 +208,22 @@ export async function PATCH(request: NextRequest, { params }: Params) {
           { status: 400 }
         );
       }
-      const pageIds = await getFacebookPageIdsForPost(id);
-      if (pageIds.length === 0) {
-        return NextResponse.json(
-          { error: "Phải chọn ít nhất một Fanpage trước khi hẹn giờ." },
-          { status: 400 }
-        );
-      }
-      const batchId = p.batchId || randomBytes(16).toString("hex");
       updates.scheduledAt = scheduledDate;
-      updates.status = "queued";
-      updates.batchId = batchId;
 
-      await cancelPendingQueueForPost(id);
-      await enqueueScheduledPostPages({
-        userId: session.user.id,
-        postId: id,
-        batchId,
-        scheduledAt: scheduledDate,
-      });
+      const pageIds = await getFacebookPageIdsForPost(id);
+      if (pageIds.length > 0) {
+        const batchId = p.batchId || randomBytes(16).toString("hex");
+        updates.status = "queued";
+        updates.batchId = batchId;
+
+        await cancelPendingQueueForPost(id);
+        await enqueueScheduledPostPages({
+          userId: session.user.id,
+          postId: id,
+          batchId,
+          scheduledAt: scheduledDate,
+        });
+      }
     } else {
       updates.scheduledAt = null;
       updates.status = "draft";

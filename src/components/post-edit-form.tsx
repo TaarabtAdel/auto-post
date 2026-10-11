@@ -2,10 +2,20 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { describeDeleteImpact } from "@/lib/post-delete-impact";
 import { PageCategorySelectBar } from "@/components/page-category-select-bar";
 import { ui } from "@/lib/dashboard-ui";
+import { MediaThumbList } from "@/components/media-thumb-list";
+import { FileDropHint, FileDropZone } from "@/components/file-drop-zone";
+import {
+  POST_MEDIA_ACCEPT,
+  uploadMediaFiles,
+} from "@/lib/upload-client";
+import {
+  scheduledAtToDatetimeLocal,
+  scheduledAtToIso,
+} from "@/lib/scheduled-at";
 
 interface MediaItem {
   id: string;
@@ -89,19 +99,28 @@ const STATUS_LABEL: Record<string, string> = {
   failed: "Lỗi",
 };
 
-function toLocalDatetimeValue(iso: string | null): string {
-  if (!iso) return "";
-  const d = new Date(iso);
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+/** Khung giờ đăng nhanh (giờ máy / VN). */
+const QUICK_SCHEDULE_HOURS = [18, 20, 22, 4, 6, 9] as const;
+
+function localDatetimeAtNextHour(hour: number): string {
+  const now = new Date();
+  const d = new Date(now);
+  d.setSeconds(0, 0);
+  d.setMinutes(0, 0);
+  d.setHours(hour, 0, 0, 0);
+  if (d.getTime() <= now.getTime()) {
+    d.setDate(d.getDate() + 1);
+  }
+  return scheduledAtToDatetimeLocal(d.toISOString());
 }
 
 export function PostEditForm({ post, apps, batchSiblings }: Props) {
   const router = useRouter();
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const [content, setContent] = useState(post.content);
   const [firstComment, setFirstComment] = useState(post.firstComment ?? "");
-  const [scheduledAt, setScheduledAt] = useState(toLocalDatetimeValue(post.scheduledAt));
+  const [scheduledAt, setScheduledAt] = useState(() =>
+    scheduledAtToDatetimeLocal(scheduledAtToIso(post.scheduledAt))
+  );
   const [workspaceAppId, setWorkspaceAppId] = useState("");
   const [facebookPageId, setFacebookPageId] = useState(post.facebookPageId ?? "");
   const [allPages, setAllPages] = useState<PageOption[]>([]);
@@ -128,6 +147,12 @@ export function PostEditForm({ post, apps, batchSiblings }: Props) {
 
   const editable = ["draft", "queued", "scheduled", "failed"].includes(post.status);
   const isPosted = post.status === "posted";
+
+  useEffect(() => {
+    setScheduledAt(
+      scheduledAtToDatetimeLocal(scheduledAtToIso(post.scheduledAt))
+    );
+  }, [post.id, post.scheduledAt]);
 
   useEffect(() => {
     fetch("/api/facebook-pages")
@@ -228,45 +253,28 @@ export function PostEditForm({ post, apps, batchSiblings }: Props) {
     });
   }
 
-  async function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
-    const files = e.target.files;
-    if (!files || files.length === 0) return;
-
+  async function addMediaFiles(files: File[]) {
+    if (files.length === 0) return;
     setUploading(true);
     setError("");
-
-    for (const file of Array.from(files)) {
-      const formData = new FormData();
-      formData.append("file", file);
-
-      try {
-        const res = await fetch("/api/uploads", {
-          method: "POST",
-          body: formData,
-        });
-        const data = await res.json();
-        if (!res.ok) {
-          setError(data.error || "Upload thất bại.");
-          continue;
-        }
-        setMedia((prev) => [
-          ...prev,
-          {
-            filePath: data.filePath,
-            fileName: data.fileName,
-            fileSize: data.fileSize,
-            mimeType: data.mimeType,
-            fileType: data.fileType,
-            url: data.url,
-          },
-        ]);
-      } catch {
-        setError("Upload thất bại. Vui lòng thử lại.");
-      }
+    const { uploaded, errors } = await uploadMediaFiles(files);
+    if (errors.length > 0) {
+      setError(errors[0]);
     }
-
+    if (uploaded.length > 0) {
+      setMedia((prev) => [
+        ...prev,
+        ...uploaded.map((data) => ({
+          filePath: data.filePath,
+          fileName: data.fileName,
+          fileSize: data.fileSize,
+          mimeType: data.mimeType,
+          fileType: data.fileType,
+          url: data.url,
+        })),
+      ]);
+    }
     setUploading(false);
-    if (fileInputRef.current) fileInputRef.current.value = "";
   }
 
   function removeMedia(index: number) {
@@ -320,9 +328,9 @@ export function PostEditForm({ post, apps, batchSiblings }: Props) {
         facebookPageIds: [...selectedPageIds],
         media: media.map(mediaToPayload),
       };
-      if (scheduledAt) {
-        payload.scheduledAt = new Date(scheduledAt).toISOString();
-      }
+      payload.scheduledAt = scheduledAt
+        ? new Date(scheduledAt).toISOString()
+        : null;
 
       const res = await fetch(`/api/posts/${post.id}`, {
         method: "PATCH",
@@ -645,67 +653,74 @@ export function PostEditForm({ post, apps, batchSiblings }: Props) {
           />
         </div>
 
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Hẹn giờ đăng</label>
-          <input
-            type="datetime-local"
-            value={scheduledAt}
-            onChange={(e) => setScheduledAt(e.target.value)}
-            disabled={!editable}
-            className="w-full max-w-md px-3 py-2 border border-gray-300 rounded-lg text-sm disabled:opacity-60"
-          />
+        <div className="flex flex-wrap gap-3 items-end max-w-xl">
+          <div className="shrink-0">
+            <label
+              htmlFor="quick-schedule-slot"
+              className="block text-sm font-medium text-gray-700 mb-1"
+            >
+              Chọn nhanh
+            </label>
+            <select
+              id="quick-schedule-slot"
+              defaultValue=""
+              disabled={!editable}
+              onChange={(e) => {
+                const hour = Number(e.target.value);
+                if (!Number.isNaN(hour)) {
+                  setScheduledAt(localDatetimeAtNextHour(hour));
+                }
+                e.target.value = "";
+              }}
+              className={`${ui.select} min-w-[8.5rem]`}
+            >
+              <option value="">Khung giờ…</option>
+              {QUICK_SCHEDULE_HOURS.map((h) => (
+                <option key={h} value={h}>
+                  {String(h).padStart(2, "0")}:00
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="flex-1 min-w-[12rem]">
+            <label
+              htmlFor="post-scheduled-at"
+              className="block text-sm font-medium text-gray-700 mb-1"
+            >
+              Hẹn giờ đăng
+            </label>
+            <input
+              id="post-scheduled-at"
+              type="datetime-local"
+              value={scheduledAt}
+              onChange={(e) => setScheduledAt(e.target.value)}
+              disabled={!editable}
+              className={`${ui.input} w-full disabled:opacity-60`}
+            />
+          </div>
         </div>
 
         {(editable || canCloneToMore) && (
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">Ảnh / Video</label>
-            <div className="flex flex-wrap gap-3 mb-4">
-              {media.map((m, i) => (
-                <div key={`${m.filePath}-${i}`} className="relative group border rounded-lg overflow-hidden">
-                  {m.fileType === "image" ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={m.url} alt={m.fileName} className="w-24 h-24 object-cover" />
-                  ) : (
-                    <video
-                      src={m.url}
-                      className="w-24 h-24 object-cover bg-black"
-                      controls={editable}
-                      muted={!editable}
-                      playsInline
-                      preload="metadata"
-                    />
-                  )}
-                  {(editable || isPosted) && (
-                    <button
-                      type="button"
-                      onClick={() => removeMedia(i)}
-                      className="absolute top-1 right-1 bg-red-500 text-white rounded-full w-5 h-5 text-xs"
-                    >
-                      ×
-                    </button>
-                  )}
-                </div>
-              ))}
-            </div>
+            <MediaThumbList
+              items={media}
+              onRemove={editable || isPosted ? removeMedia : undefined}
+              videoControls={editable}
+            />
             {(editable || isPosted) && (
-              <>
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept="image/jpeg,image/png,image/gif,image/webp,video/mp4,video/quicktime"
-                  multiple
-                  onChange={handleFileUpload}
-                  className="hidden"
+              <FileDropZone
+                accept={POST_MEDIA_ACCEPT}
+                multiple
+                disabled={uploading || loading}
+                onFiles={addMediaFiles}
+                className="mt-2"
+              >
+                <FileDropHint
+                  busy={uploading}
+                  extra="Ảnh JPG/PNG/GIF/WebP · Video MP4/MOV · Nhiều file"
                 />
-                <button
-                  type="button"
-                  onClick={() => fileInputRef.current?.click()}
-                  disabled={uploading || loading}
-                  className="border border-gray-300 text-gray-700 py-2 px-4 rounded-lg text-sm disabled:opacity-50"
-                >
-                  {uploading ? "Đang tải..." : "Thêm ảnh/video"}
-                </button>
-              </>
+              </FileDropZone>
             )}
             {!editable && media.length === 0 && (
               <p className="text-xs text-gray-500">Chưa có media — thêm file trước khi hẹn sang Fanpage khác.</p>

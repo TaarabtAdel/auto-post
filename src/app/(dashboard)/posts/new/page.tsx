@@ -1,10 +1,13 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { PageCategorySelectBar } from "@/components/page-category-select-bar";
 import { PageHeader } from "@/components/page-header";
 import { ui } from "@/lib/dashboard-ui";
+import { MediaThumbList } from "@/components/media-thumb-list";
+import { FileDropHint, FileDropZone } from "@/components/file-drop-zone";
+import { POST_MEDIA_ACCEPT, uploadMediaFiles } from "@/lib/upload-client";
 
 interface MediaFile {
   filePath: string;
@@ -32,7 +35,6 @@ interface AppOption {
 
 export default function NewPostPage() {
   const router = useRouter();
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const [content, setContent] = useState("");
   const [firstComment, setFirstComment] = useState("");
   const [apps, setApps] = useState<AppOption[]>([]);
@@ -129,48 +131,26 @@ export default function NewPostPage() {
     });
   }
 
-  async function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
-    const files = e.target.files;
-    if (!files || files.length === 0) return;
-
+  async function addMediaFiles(files: File[]) {
+    if (files.length === 0) return;
     setUploading(true);
     setError("");
-
-    for (const file of Array.from(files)) {
-      const formData = new FormData();
-      formData.append("file", file);
-
-      try {
-        const res = await fetch("/api/uploads", {
-          method: "POST",
-          body: formData,
-        });
-
-        const data = await res.json();
-
-        if (!res.ok) {
-          setError(data.error || "Upload thất bại.");
-          continue;
-        }
-
-        setMedia((prev) => [
-          ...prev,
-          {
-            filePath: data.filePath,
-            fileName: data.fileName,
-            fileSize: data.fileSize,
-            mimeType: data.mimeType,
-            fileType: data.fileType,
-            url: data.url,
-          },
-        ]);
-      } catch {
-        setError("Upload thất bại. Vui lòng thử lại.");
-      }
+    const { uploaded, errors } = await uploadMediaFiles(files);
+    if (errors.length > 0) setError(errors[0]);
+    if (uploaded.length > 0) {
+      setMedia((prev) => [
+        ...prev,
+        ...uploaded.map((data) => ({
+          filePath: data.filePath,
+          fileName: data.fileName,
+          fileSize: data.fileSize,
+          mimeType: data.mimeType,
+          fileType: data.fileType,
+          url: data.url,
+        })),
+      ]);
     }
-
     setUploading(false);
-    if (fileInputRef.current) fileInputRef.current.value = "";
   }
 
   function removeMedia(index: number) {
@@ -605,46 +585,19 @@ export default function NewPostPage() {
           <label className="block text-sm font-medium text-gray-700 mb-2">
             Ảnh / Video
           </label>
-          <div className="flex flex-wrap gap-3 mb-4">
-            {media.map((m, i) => (
-              <div key={i} className="relative group border rounded-lg overflow-hidden">
-                {m.fileType === "image" ? (
-                  <img src={m.url} alt={m.fileName} className="w-24 h-24 object-cover" />
-                ) : (
-                  <video
-                    src={m.url}
-                    className="w-24 h-24 object-cover bg-black"
-                    muted
-                    playsInline
-                    preload="metadata"
-                  />
-                )}
-                <button
-                  type="button"
-                  onClick={() => removeMedia(i)}
-                  className="absolute top-1 right-1 bg-red-500 text-white rounded-full w-5 h-5 text-xs"
-                >
-                  ×
-                </button>
-              </div>
-            ))}
-          </div>
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="image/jpeg,image/png,image/gif,image/webp,video/mp4,video/quicktime"
+          <MediaThumbList items={media} onRemove={removeMedia} />
+          <FileDropZone
+            accept={POST_MEDIA_ACCEPT}
             multiple
-            onChange={handleFileUpload}
-            className="hidden"
-          />
-          <button
-            type="button"
-            onClick={() => fileInputRef.current?.click()}
             disabled={uploading}
-            className={`${ui.btnSecondary} disabled:opacity-50`}
+            onFiles={addMediaFiles}
+            className="mt-2"
           >
-            {uploading ? "Đang tải..." : "Thêm ảnh/video"}
-          </button>
+            <FileDropHint
+              busy={uploading}
+              extra="Ảnh JPG/PNG/GIF/WebP · Video MP4/MOV · Nhiều file"
+            />
+          </FileDropZone>
         </div>
 
         <div className={`${ui.card} ${ui.cardPad}`}>

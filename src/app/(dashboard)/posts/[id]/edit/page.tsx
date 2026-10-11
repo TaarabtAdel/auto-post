@@ -13,6 +13,7 @@ import { listWorkspaceApps } from "@/lib/workspace-app";
 import { PostEditForm } from "@/components/post-edit-form";
 import { PageHeader } from "@/components/page-header";
 import { uploadMediaPublicUrl } from "@/lib/upload-media-url";
+import { scheduledAtToIso } from "@/lib/scheduled-at";
 
 type Props = { params: Promise<{ id: string }> };
 
@@ -72,12 +73,7 @@ export default async function EditPostPage({ params }: Props) {
           status: p.status,
           facebookPageId: p.facebookPageId,
           facebookPageIds,
-          scheduledAt:
-            p.scheduledAt instanceof Date
-              ? p.scheduledAt.toISOString()
-              : p.scheduledAt
-                ? String(p.scheduledAt)
-                : null,
+          scheduledAt: scheduledAtToIso(p.scheduledAt),
           pageName,
           media: media
             .sort((a, b) => a.sortOrder - b.sortOrder)

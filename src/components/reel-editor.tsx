@@ -11,6 +11,14 @@ import type {
 } from "@/lib/reel/types";
 import { parseCutRanges } from "@/lib/reel/cuts";
 import { detectFrameHoleFromImageData } from "@/lib/reel/frame-hole-core";
+import { ui } from "@/lib/dashboard-ui";
+import { FileDropHint, FileDropZone } from "@/components/file-drop-zone";
+import {
+  AUDIO_ACCEPT,
+  IMAGE_ACCEPT,
+  uploadMediaFile,
+  VIDEO_ACCEPT,
+} from "@/lib/upload-client";
 
 interface UploadedMedia {
   filePath: string;
@@ -71,10 +79,19 @@ export function ReelEditor() {
   const [result, setResult] = useState<{
     url: string;
     filePath: string;
+    fileName: string;
+    fileSize: number;
     durationSec: number;
   } | null>(null);
   const [results, setResults] = useState<
-    { url: string; filePath: string; durationSec: number; label: string }[]
+    {
+      url: string;
+      filePath: string;
+      fileName: string;
+      fileSize: number;
+      durationSec: number;
+      label: string;
+    }[]
   >([]);
   const [background, setBackground] = useState<UploadedMedia | null>(null);
   const [sourceVideo, setSourceVideo] = useState<UploadedMedia | null>(null);
@@ -88,8 +105,6 @@ export function ReelEditor() {
   const [tab, setTab] = useState<"media" | "title" | "audio" | "copyright" | "cta">(
     "media"
   );
-  const bgInputRef = useRef<HTMLInputElement>(null);
-  const videoInputRef = useRef<HTMLInputElement>(null);
   const previewRef = useRef<HTMLDivElement>(null);
   const holeDrag = useRef<{ dx: number; dy: number } | null>(null);
 
@@ -124,15 +139,10 @@ export function ReelEditor() {
     }
   }, []);
 
-  async function uploadFile(
-    file: File,
+  function toUploadedMedia(
+    data: Awaited<ReturnType<typeof uploadMediaFile>>,
     kind: "image" | "video" | "audio"
-  ): Promise<UploadedMedia> {
-    const formData = new FormData();
-    formData.append("file", file);
-    const res = await fetch("/api/uploads", { method: "POST", body: formData });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || "Upload thất bại.");
+  ): UploadedMedia {
     return {
       filePath: data.filePath,
       fileName: data.fileName,
@@ -147,18 +157,46 @@ export function ReelEditor() {
     };
   }
 
-  async function handleMusic(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  async function uploadReelFile(file: File, kind: "image" | "video" | "audio") {
+    const data = await uploadMediaFile(file);
+    return toUploadedMedia(data, kind);
+  }
+
+  async function pickBackgroundFile(file: File) {
     setUploading(true);
     setError("");
     try {
-      setMusic(await uploadFile(file, "audio"));
+      const uploaded = await uploadReelFile(file, "image");
+      setBackground(uploaded);
+      detectHoleFromUrl(uploaded.url);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Upload ảnh nền thất bại.");
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  async function pickSourceVideoFile(file: File) {
+    setUploading(true);
+    setError("");
+    try {
+      setSourceVideo(await uploadReelFile(file, "video"));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Upload video thất bại.");
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  async function pickMusicFile(file: File) {
+    setUploading(true);
+    setError("");
+    try {
+      setMusic(await uploadReelFile(file, "audio"));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Upload nhạc thất bại.");
     } finally {
       setUploading(false);
-      e.target.value = "";
     }
   }
 
@@ -188,37 +226,6 @@ export function ReelEditor() {
     img.src = url;
   }
 
-  async function handlePickBackground(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    e.target.value = "";
-    if (!file) return;
-    setUploading(true);
-    setError("");
-    try {
-      const uploaded = await uploadFile(file, "image");
-      setBackground(uploaded);
-      detectHoleFromUrl(uploaded.url);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Upload ảnh nền thất bại.");
-    } finally {
-      setUploading(false);
-    }
-  }
-
-  async function handlePickVideo(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    e.target.value = "";
-    if (!file) return;
-    setUploading(true);
-    setError("");
-    try {
-      setSourceVideo(await uploadFile(file, "video"));
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Upload video thất bại.");
-    } finally {
-      setUploading(false);
-    }
-  }
 
   async function handleRender() {
     setError("");
@@ -254,6 +261,8 @@ export function ReelEditor() {
         const videos = (data.videos ?? []) as {
           url: string;
           filePath: string;
+          fileName: string;
+          fileSize: number;
           durationSec: number;
           label: string;
         }[];
@@ -262,6 +271,8 @@ export function ReelEditor() {
           setResult({
             url: videos[0].url,
             filePath: videos[0].filePath,
+            fileName: videos[0].fileName,
+            fileSize: videos[0].fileSize ?? 0,
             durationSec: videos[0].durationSec,
           });
         }
@@ -318,6 +329,8 @@ export function ReelEditor() {
       setResult({
         url: data.url,
         filePath: data.filePath,
+        fileName: data.fileName ?? "reel.mp4",
+        fileSize: data.fileSize ?? 0,
         durationSec: data.durationSec,
       });
     } catch {
@@ -333,8 +346,8 @@ export function ReelEditor() {
       "autopost_reel",
       JSON.stringify({
         filePath: result.filePath,
-        fileName: "reel.mp4",
-        fileSize: 0,
+        fileName: result.fileName,
+        fileSize: result.fileSize,
         mimeType: "video/mp4",
         fileType: "video",
         url: result.url,
@@ -355,26 +368,22 @@ export function ReelEditor() {
   ];
 
   const previewClip = result ? null : clips[0];
-  const field =
-    "w-full bg-[#111113] border border-white/15 rounded-md px-3 py-2 text-sm text-white placeholder:text-white/40";
-  const pill = (on: boolean) =>
-    `flex-1 py-2.5 rounded-md text-sm border ${
-      on ? "border-pink-500 text-white" : "border-white/15 text-white/70"
+  const aspectPill = (on: boolean) =>
+    `flex-1 py-2 rounded-lg text-xs sm:text-sm font-medium border transition-colors ${
+      on
+        ? "bg-blue-600 text-white border-blue-600"
+        : "bg-white text-gray-700 border-gray-300 hover:bg-gray-50"
     }`;
 
   return (
-    <div className="bg-[#0b0b0d] text-white border border-gray-800 rounded-xl p-4 sm:p-6 min-h-[480px]">
-      {error && (
-        <div className="mb-4 bg-red-500/15 text-red-300 px-4 py-2 rounded-lg text-sm border border-red-500/20">
-          {error}
-        </div>
-      )}
+    <div className={`${ui.card} ${ui.cardPad} min-h-[480px] space-y-4 text-sm text-gray-900`}>
+      {error && <div className={`mb-2 ${ui.alertError}`}>{error}</div>}
 
       <div className="grid lg:grid-cols-[minmax(280px,1fr)_minmax(420px,1.1fr)] gap-6 items-start">
         <div className="space-y-3 w-full max-w-[420px] mx-auto lg:mx-0">
           <div
             ref={previewRef}
-            className="relative bg-black rounded-sm overflow-hidden w-full select-none"
+            className="relative bg-black rounded-lg overflow-hidden w-full select-none border border-gray-200"
             style={{ aspectRatio: previewRatio }}
             onPointerMove={(e) => {
               if (!holeDrag.current || !previewRef.current) return;
@@ -435,23 +444,23 @@ export function ReelEditor() {
             )}
           </div>
           {background && sourceVideo && (
-            <p className="text-xs text-white/45">
+            <p className={`text-xs ${ui.hint}`}>
               Kéo video để chỉnh vào đúng khung đen của ảnh nền.
             </p>
           )}
         </div>
 
         <div className="space-y-5">
-          <div className="flex flex-wrap gap-4 text-sm border-b border-white/10">
+          <div className="flex flex-wrap gap-1 text-sm bg-gray-100 p-1 rounded-lg">
             {tabs.map((t) => (
               <button
                 key={t.id}
                 type="button"
                 onClick={() => setTab(t.id)}
-                className={`pb-2 ${
+                className={`px-3 py-2 rounded-md transition-colors whitespace-nowrap ${
                   tab === t.id
-                    ? "text-pink-400 border-b-2 border-pink-500"
-                    : "text-white/60"
+                    ? "bg-white text-gray-900 shadow-sm font-medium"
+                    : "text-gray-600 hover:text-gray-900"
                 }`}
               >
                 {t.label}
@@ -462,55 +471,71 @@ export function ReelEditor() {
           {tab === "media" && (
             <div className="space-y-5">
               <div>
-                <p className="text-sm mb-2">Ảnh nền (khung)</p>
-                <div className="flex items-center gap-2">
+                <p className="text-sm font-medium text-gray-700 mb-2">Ảnh nền (khung)</p>
+                <FileDropZone
+                  accept={IMAGE_ACCEPT}
+                  disabled={uploading}
+                  compact
+                  onFiles={(files) => {
+                    const file = files[0];
+                    if (file) void pickBackgroundFile(file);
+                  }}
+                >
+                  <FileDropHint
+                    busy={uploading}
+                    extra={
+                      background
+                        ? `Đã chọn: ${background.fileName}`
+                        : "JPG, PNG, GIF, WebP"
+                    }
+                  />
+                </FileDropZone>
+                {background && (
                   <button
                     type="button"
-                    className="border border-white/20 rounded-md py-2 px-3 text-sm"
-                    disabled={uploading}
-                    onClick={() => bgInputRef.current?.click()}
+                    className="text-xs text-red-600 hover:underline mt-1"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setBackground(null);
+                    }}
                   >
-                    {background ? background.fileName : "Chọn ảnh nền"}
+                    Xóa ảnh nền
                   </button>
-                  {background && (
-                    <button type="button" className="text-xs text-red-400" onClick={() => setBackground(null)}>
-                      Xóa
-                    </button>
-                  )}
-                  <input
-                    ref={bgInputRef}
-                    type="file"
-                    accept="image/jpeg,image/png,image/gif,image/webp"
-                    className="hidden"
-                    onChange={handlePickBackground}
-                  />
-                </div>
+                )}
               </div>
 
               <div>
-                <p className="text-sm mb-2">Video (kéo vào khung nền)</p>
-                <div className="flex items-center gap-2">
+                <p className="text-sm font-medium text-gray-700 mb-2">Video (kéo vào khung nền)</p>
+                <FileDropZone
+                  accept={VIDEO_ACCEPT}
+                  disabled={uploading}
+                  compact
+                  onFiles={(files) => {
+                    const file = files[0];
+                    if (file) void pickSourceVideoFile(file);
+                  }}
+                >
+                  <FileDropHint
+                    busy={uploading}
+                    extra={
+                      sourceVideo
+                        ? `Đã chọn: ${sourceVideo.fileName}`
+                        : "MP4, MOV"
+                    }
+                  />
+                </FileDropZone>
+                {sourceVideo && (
                   <button
                     type="button"
-                    className="border border-white/20 rounded-md py-2 px-3 text-sm"
-                    disabled={uploading}
-                    onClick={() => videoInputRef.current?.click()}
+                    className="text-xs text-red-600 hover:underline mt-1"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setSourceVideo(null);
+                    }}
                   >
-                    {sourceVideo ? sourceVideo.fileName : "Chọn video"}
+                    Xóa video
                   </button>
-                  {sourceVideo && (
-                    <button type="button" className="text-xs text-red-400" onClick={() => setSourceVideo(null)}>
-                      Xóa
-                    </button>
-                  )}
-                  <input
-                    ref={videoInputRef}
-                    type="file"
-                    accept="video/mp4,video/quicktime"
-                    className="hidden"
-                    onChange={handlePickVideo}
-                  />
-                </div>
+                )}
               </div>
 
               <label className="block text-sm">
@@ -519,11 +544,11 @@ export function ReelEditor() {
                   value={cutsText}
                   onChange={(e) => setCutsText(e.target.value)}
                   rows={2}
-                  className={`${field} mt-1`}
+                  className={`${ui.textarea} mt-1`}
                   placeholder="01:15-01:42,09:10-09:35,03:40-04:05"
                 />
                 {parseCutRanges(cutsText).length > 0 && (
-                  <p className="text-xs text-white/50 mt-1">
+                  <p className="text-xs text-gray-500 mt-1">
                     Sẽ tạo {parseCutRanges(cutsText).length} video:{" "}
                     {parseCutRanges(cutsText).map((c) => c.label).join(", ")}
                   </p>
@@ -531,8 +556,8 @@ export function ReelEditor() {
               </label>
 
               <div>
-                <p className="text-sm mb-2">Tỷ lệ khung hình</p>
-                <div className="flex gap-2">
+                <p className="text-sm font-medium text-gray-700 mb-2">Tỷ lệ khung hình</p>
+                <div className="flex flex-col sm:flex-row gap-2">
                   {(
                     [
                       ["9:16", "9:16 (Reels/Story)"],
@@ -544,7 +569,7 @@ export function ReelEditor() {
                       key={id}
                       type="button"
                       onClick={() => setAspectRatio(id)}
-                      className={pill(aspectRatio === id)}
+                      className={aspectPill(aspectRatio === id)}
                     >
                       {label}
                     </button>
@@ -552,7 +577,7 @@ export function ReelEditor() {
                 </div>
               </div>
 
-              <label className="flex items-start gap-2 text-sm">
+              <label className="flex items-start gap-2 text-sm text-gray-800">
                 <input
                   type="checkbox"
                   checked={splitMode}
@@ -561,11 +586,11 @@ export function ReelEditor() {
                     setSplitMode(on);
                     if (on) setClips((prev) => prev.slice(0, 2));
                   }}
-                  className="mt-0.5"
+                  className="mt-0.5 rounded border-gray-300"
                 />
                 <span>
-                  <span className="block">Chia đôi màn hình (trên / dưới)</span>
-                  <span className="text-white/45 text-xs">
+                  <span className="block font-medium">Chia đôi màn hình (trên / dưới)</span>
+                  <span className="text-gray-500 text-xs">
                     Bật để chia khung hình làm 2 vùng trên/dưới, mỗi vùng 1 ảnh hoặc video.
                   </span>
                 </span>
@@ -577,7 +602,7 @@ export function ReelEditor() {
           {tab === "title" && (
             <div className="space-y-3">
               {captions.map((cap, i) => (
-                <div key={i} className="border border-white/10 rounded-md p-3 space-y-2">
+                <div key={i} className={`${ui.card} ${ui.cardPadSm} space-y-2`}>
                   <textarea
                     value={cap.text}
                     onChange={(e) =>
@@ -586,10 +611,10 @@ export function ReelEditor() {
                       )
                     }
                     rows={2}
-                    className={field}
+                    className={ui.textarea}
                     placeholder="Nội dung hiện trên video..."
                   />
-                  <div className="grid sm:grid-cols-4 gap-2 text-xs text-white/70">
+                  <div className="grid sm:grid-cols-4 gap-2 text-xs text-gray-600">
                     <label>
                       Bắt đầu (s)
                       <input
@@ -603,7 +628,7 @@ export function ReelEditor() {
                             )
                           )
                         }
-                        className={`${field} mt-0.5`}
+                        className={`${ui.input} mt-0.5`}
                       />
                     </label>
                     <label>
@@ -619,7 +644,7 @@ export function ReelEditor() {
                             )
                           )
                         }
-                        className={`${field} mt-0.5`}
+                        className={`${ui.input} mt-0.5`}
                       />
                     </label>
                     <label>
@@ -634,7 +659,7 @@ export function ReelEditor() {
                             )
                           )
                         }
-                        className={`${field} mt-0.5`}
+                        className={`${ui.input} mt-0.5`}
                       />
                     </label>
                     <label>
@@ -649,13 +674,13 @@ export function ReelEditor() {
                             )
                           )
                         }
-                        className={`${field} mt-0.5`}
+                        className={`${ui.input} mt-0.5`}
                       />
                     </label>
                   </div>
                   <button
                     type="button"
-                    className="text-xs text-red-400"
+                    className="text-xs text-red-600 hover:underline"
                     onClick={() => setCaptions((prev) => prev.filter((_, j) => j !== i))}
                   >
                     Xóa caption
@@ -665,7 +690,7 @@ export function ReelEditor() {
               <button
                 type="button"
                 onClick={() => setCaptions((prev) => [...prev, newCaption()])}
-                className="text-sm text-pink-400"
+                className="text-sm text-blue-600 hover:underline font-medium"
               >
                 + Thêm caption
               </button>
@@ -674,22 +699,29 @@ export function ReelEditor() {
 
           {tab === "audio" && (
             <div className="space-y-4">
-              <div className="flex flex-wrap gap-3 items-center">
-                <label className="border border-white/20 text-sm px-3 py-1.5 rounded-md cursor-pointer">
-                  {music ? music.fileName : "Chọn file nhạc"}
-                  <input
-                    type="file"
-                    accept="audio/mpeg,audio/mp3,audio/wav,audio/aac,audio/mp4,video/mp4"
-                    className="hidden"
-                    onChange={handleMusic}
-                  />
-                </label>
-                {music && (
-                  <button type="button" className="text-xs text-red-400" onClick={() => setMusic(null)}>
-                    Bỏ nhạc
-                  </button>
-                )}
-              </div>
+              <FileDropZone
+                accept={AUDIO_ACCEPT}
+                disabled={uploading}
+                compact
+                onFiles={(files) => {
+                  const file = files[0];
+                  if (file) void pickMusicFile(file);
+                }}
+              >
+                <FileDropHint
+                  busy={uploading}
+                  extra={music ? `Đã chọn: ${music.fileName}` : "MP3, WAV, AAC, M4A"}
+                />
+              </FileDropZone>
+              {music && (
+                <button
+                  type="button"
+                  className="text-xs text-red-600 hover:underline"
+                  onClick={() => setMusic(null)}
+                >
+                  Bỏ nhạc
+                </button>
+              )}
               <label className="block text-sm">
                 Âm lượng video: {Math.round(videoVolume * 100)}%
                 <input
@@ -743,16 +775,16 @@ export function ReelEditor() {
                   <input
                     value={endCta.text}
                     onChange={(e) => setEndCta((c) => ({ ...c, text: e.target.value }))}
-                    className={field}
+                    className={ui.input}
                     placeholder="Full video"
                   />
                   <input
                     value={endCta.icon}
                     onChange={(e) => setEndCta((c) => ({ ...c, icon: e.target.value }))}
-                    className={field}
+                    className={ui.input}
                     placeholder="👇"
                   />
-                  <label className="text-xs text-white/70">
+                  <label className="text-xs text-gray-600">
                     Hiện trong (s) cuối
                     <input
                       type="number"
@@ -762,7 +794,7 @@ export function ReelEditor() {
                       onChange={(e) =>
                         setEndCta((c) => ({ ...c, durationSec: Number(e.target.value) }))
                       }
-                      className={`${field} mt-0.5`}
+                      className={`${ui.input} mt-0.5`}
                     />
                   </label>
                   <label className="flex items-center gap-2 text-sm">
@@ -782,18 +814,18 @@ export function ReelEditor() {
             type="button"
             onClick={handleRender}
             disabled={rendering || uploading}
-            className="w-full bg-pink-500 hover:bg-pink-400 text-white py-3 rounded-md text-sm font-medium disabled:opacity-50"
+            className={`w-full ${ui.btnPrimary} py-3 text-base disabled:opacity-50`}
           >
             {rendering ? "Đang tạo..." : uploading ? "Đang tải file..." : "Tạo video"}
           </button>
 
           {results.length > 0 && (
             <div className="space-y-2">
-              <p className="text-sm text-white/70">Đã tạo {results.length} video</p>
+              <p className="text-sm text-gray-600">Đã tạo {results.length} video</p>
               {results.map((v, i) => (
                 <div
                   key={v.filePath}
-                  className="flex items-center justify-between gap-2 border border-white/10 rounded-md px-3 py-2 text-sm"
+                  className={`flex items-center justify-between gap-2 ${ui.card} ${ui.cardPadSm} text-sm`}
                 >
                   <button
                     type="button"
@@ -802,16 +834,21 @@ export function ReelEditor() {
                       setResult({
                         url: v.url,
                         filePath: v.filePath,
+                        fileName: v.fileName,
+                        fileSize: v.fileSize ?? 0,
                         durationSec: v.durationSec,
                       })
                     }
                   >
-                    Đoạn {i + 1} · {v.label} · {v.durationSec.toFixed(1)}s
+                    <span className="block truncate font-medium">{v.fileName}</span>
+                    <span className="text-gray-500 text-xs">
+                      STT {String(i + 1).padStart(2, "0")} · {v.label} · {v.durationSec.toFixed(1)}s
+                    </span>
                   </button>
                   <a
                     href={v.url}
-                    download={`reel-${v.label.replace(/[:]/g, "")}.mp4`}
-                    className="bg-pink-500 hover:bg-pink-400 text-white px-3 py-1 rounded-md whitespace-nowrap"
+                    download={v.fileName}
+                    className={`${ui.btnSmPrimary} whitespace-nowrap`}
                   >
                     Tải về
                   </a>
@@ -821,14 +858,19 @@ export function ReelEditor() {
           )}
 
           {result && results.length === 0 && (
-            <div className="flex flex-wrap gap-3 text-sm">
-              <span className="text-white/50">Xong · {result.durationSec.toFixed(1)}s</span>
-              <button type="button" onClick={useForPost} className="text-pink-400 underline">
-                Dùng cho bài viết Facebook
-              </button>
-              <a href={result.url} download="reel.mp4" className="text-white/70 underline">
-                Tải video
-              </a>
+            <div className={`space-y-2 text-sm ${ui.card} ${ui.cardPadSm}`}>
+              <p className="text-gray-900 truncate font-medium" title={result.fileName}>
+                {result.fileName}
+              </p>
+              <div className="flex flex-wrap gap-3 items-center">
+                <span className="text-gray-500">Xong · {result.durationSec.toFixed(1)}s</span>
+                <button type="button" onClick={useForPost} className="text-blue-600 hover:underline font-medium">
+                  Dùng cho bài viết Facebook
+                </button>
+                <a href={result.url} download={result.fileName} className="text-gray-700 hover:underline">
+                  Tải video
+                </a>
+              </div>
             </div>
           )}
         </div>

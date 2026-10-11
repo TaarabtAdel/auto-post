@@ -4,11 +4,11 @@ import { headers } from "next/headers";
 import { mkdir, stat } from "fs/promises";
 import { existsSync } from "fs";
 import { join, normalize, relative } from "path";
-import { randomBytes } from "crypto";
 import { reelLimiter, checkRateLimit } from "@/lib/rate-limit";
 import { uploadMediaPublicUrl } from "@/lib/upload-media-url";
 import { composeReel } from "@/lib/reel/compose";
 import { composeFramedCuts } from "@/lib/reel/compose-framed";
+import { buildReelOutputFileName } from "@/lib/reel/output-filename";
 import { parseCutRanges } from "@/lib/reel/cuts";
 import type {
   AspectRatioId,
@@ -237,7 +237,6 @@ export async function POST(request: NextRequest) {
     await mkdir(userDir, { recursive: true });
 
     if (framedMode) {
-      const prefix = `${Date.now()}-${randomBytes(4).toString("hex")}`;
       const clips = await composeFramedCuts({
         backgroundPath: resolveOwnedPath(userId, backgroundPath),
         videoPath: resolveOwnedPath(userId, videoPath),
@@ -247,7 +246,6 @@ export async function POST(request: NextRequest) {
         flipVideo: body.flipVideo === true,
         videoVolume: num(body.videoVolume, 1, 0, 1),
         outputDir: userDir,
-        filePrefix: prefix,
       });
       const videos = await Promise.all(
         clips.map(async (c) => {
@@ -269,7 +267,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ videos, url: videos[0]?.url, durationSec: videos[0]?.durationSec });
     }
 
-    const outName = `${Date.now()}-${randomBytes(6).toString("hex")}-reel.mp4`;
+    const outName = buildReelOutputFileName({ stt: 1 });
     const rel = `${userId}/${outName}`;
     const absOut = join(userDir, outName);
 
