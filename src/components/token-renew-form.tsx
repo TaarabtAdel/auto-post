@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useState } from "react";
 import type { WorkspaceAppOption } from "@/components/add-page-form";
+import { ui } from "@/lib/dashboard-ui";
 
 interface PageTokenRow {
   pageId: string;
@@ -101,7 +102,7 @@ export function TokenRenewForm({ apps }: Props) {
 
   return (
     <div className="space-y-6">
-      <div className="bg-white rounded-lg border border-gray-200 p-6">
+      <div className={`${ui.card} ${ui.cardPad}`}>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -110,7 +111,7 @@ export function TokenRenewForm({ apps }: Props) {
             <select
               value={workspaceAppId}
               onChange={(e) => setWorkspaceAppId(e.target.value)}
-              className="w-full max-w-md px-3 py-2 border border-gray-300 rounded-md text-sm"
+              className={`${ui.select} w-full max-w-md`}
             >
               {apps.map((app) => (
                 <option key={app.id} value={app.id}>
@@ -131,7 +132,7 @@ export function TokenRenewForm({ apps }: Props) {
               rows={4}
               value={token}
               onChange={(e) => setToken(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm font-mono"
+              className={`${ui.textarea} font-mono`}
               placeholder="Dán token từ Graph API Explorer (bắt đầu bằng EAAG... hoặc EAAX...)"
               spellCheck={false}
             />
@@ -156,15 +157,13 @@ export function TokenRenewForm({ apps }: Props) {
           </div>
 
           {error && (
-            <div className="bg-red-50 text-red-600 px-4 py-3 rounded-md text-sm">
-              {error}
-            </div>
+            <div className={ui.alertError}>{error}</div>
           )}
 
           <button
             type="submit"
             disabled={loading}
-            className="bg-[#1877F2] text-white py-2.5 px-5 rounded-md hover:bg-[#166FE5] focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm font-medium"
+            className={ui.btnPrimary}
           >
             {loading ? "Đang gia hạn..." : "Gia hạn token (long-lived ~60 ngày)"}
           </button>
@@ -172,7 +171,7 @@ export function TokenRenewForm({ apps }: Props) {
       </div>
 
       {result && (
-        <div className="bg-white rounded-lg border border-green-200 p-6 space-y-4">
+        <div className={`${ui.card} ${ui.cardPad} border-green-200 space-y-4`}>
           <h3 className="text-lg font-medium text-gray-900">Kết quả</h3>
 
           <div>
@@ -185,7 +184,7 @@ export function TokenRenewForm({ apps }: Props) {
                 readOnly
                 rows={3}
                 value={result.accessToken}
-                className="flex-1 px-3 py-2 border border-gray-200 rounded-md text-xs font-mono bg-gray-50"
+                className={`${ui.textarea} text-xs font-mono bg-gray-50`}
               />
               <button
                 type="button"
@@ -206,7 +205,7 @@ export function TokenRenewForm({ apps }: Props) {
                 {result.pages.map((page) => (
                   <li
                     key={page.pageId}
-                    className="border border-gray-100 rounded-md p-3 bg-gray-50"
+                    className={`${ui.card} ${ui.cardPadSm} border-gray-100 bg-gray-50`}
                   >
                     <div className="flex items-center gap-2 mb-2">
                       {page.pageAvatar ? (
@@ -252,7 +251,7 @@ export function TokenRenewForm({ apps }: Props) {
               </ul>
             </div>
           ) : (
-            <p className="text-sm text-amber-700 bg-amber-50 px-3 py-2 rounded-md">
+            <p className={`text-sm text-amber-800 ${ui.hint}`}>
               Không lấy được danh sách Page (thiếu quyền hoặc tài khoản không
               quản lý Page). Bạn vẫn có user token long-lived ở trên; gọi{" "}
               <code>/me/accounts</code> hoặc thêm quyền trong Explorer rồi thử

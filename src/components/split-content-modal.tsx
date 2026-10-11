@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { splitGeminiContent } from "@/lib/split-gemini-content";
+import { ui } from "@/lib/dashboard-ui";
 
 const LS_SPLITS = "ytloc_split_contents";
 
@@ -20,10 +21,7 @@ type SplitContentModalProps = {
   onClose: () => void;
 };
 
-const field =
-  "w-full border border-gray-400 bg-white px-2 py-1 text-[13px] text-gray-900";
-const btn =
-  "px-3 py-1.5 text-xs border border-gray-400 bg-gray-100 hover:bg-gray-200 rounded-sm disabled:opacity-50";
+const field = `${ui.input} text-[13px] py-1.5`;
 
 async function copyText(text: string) {
   await navigator.clipboard.writeText(text);
@@ -57,12 +55,12 @@ function ContentBox({
       <div className="flex items-center justify-between gap-2 mb-1">
         <span>{label}</span>
         <div className="flex items-center gap-1">
-          <button type="button" className={btn} onClick={onCopy}>
+          <button type="button" className={ui.btnSm} onClick={onCopy}>
             {copied ? "Đã copy" : "Copy nội dung này"}
           </button>
           <button
             type="button"
-            className={btn}
+            className={ui.btnSmPrimary}
             disabled={creating}
             onClick={onCreate}
           >
@@ -207,10 +205,10 @@ export function SplitContentModal({ defaultName = "", onClose }: SplitContentMod
       onClick={onClose}
     >
       <div
-        className="bg-[#f0f0f0] w-full max-w-[1100px] max-h-[92vh] flex flex-col border border-gray-400 shadow-lg text-[13px] text-gray-900"
+        className={`${ui.card} w-full max-w-[1100px] max-h-[92vh] flex flex-col shadow-lg text-[13px] text-gray-900`}
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between px-3 py-2 border-b border-gray-300 bg-[#e8e8e8]">
+        <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 bg-gray-50 rounded-t-xl">
           <h3 className="font-semibold">Tách và lưu 4 nội dung</h3>
           <button type="button" className="text-lg leading-none px-2" onClick={onClose}>
             ×
@@ -232,10 +230,10 @@ export function SplitContentModal({ defaultName = "", onClose }: SplitContentMod
                 </option>
               ))}
             </select>
-            <button type="button" className={btn} onClick={newDraft}>
+            <button type="button" className={ui.btnSm} onClick={newDraft}>
               Bản mới
             </button>
-            <button type="button" className={btn} onClick={deleteSaved}>
+            <button type="button" className={ui.btnSm} onClick={deleteSaved}>
               Xóa bản đã lưu
             </button>
           </div>
@@ -260,7 +258,7 @@ export function SplitContentModal({ defaultName = "", onClose }: SplitContentMod
           </label>
 
           <div>
-            <button type="button" className={btn} onClick={splitFour}>
+            <button type="button" className={ui.btnPrimary} onClick={splitFour}>
               Tách 4 nội dung
             </button>
           </div>

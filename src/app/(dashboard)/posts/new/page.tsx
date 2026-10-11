@@ -2,6 +2,9 @@
 
 import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
+import { PageCategorySelectBar } from "@/components/page-category-select-bar";
+import { PageHeader } from "@/components/page-header";
+import { ui } from "@/lib/dashboard-ui";
 
 interface MediaFile {
   filePath: string;
@@ -18,6 +21,8 @@ interface FacebookPageOption {
   pageAvatar: string | null;
   tokenStatus: string;
   workspaceAppId: string | null;
+  categoryId: string | null;
+  categoryName: string | null;
 }
 
 interface AppOption {
@@ -112,6 +117,16 @@ export default function NewPostPage() {
     } else {
       setSelectedPageIds(new Set(appPages.map((p) => p.id)));
     }
+  }
+
+  function invertPageSelection() {
+    setSelectedPageIds((prev) => {
+      const next = new Set<string>();
+      for (const p of appPages) {
+        if (!prev.has(p.id)) next.add(p.id);
+      }
+      return next;
+    });
   }
 
   async function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
@@ -354,22 +369,16 @@ export default function NewPostPage() {
   const canPublish = apps.length > 0 && selectedPageIds.size > 0;
 
   return (
-    <div>
-      <div className="mb-8">
-        <h2 className="text-2xl font-bold text-gray-900">Tạo bài viết mới</h2>
-        <p className="text-sm text-gray-500 mt-1">
-          Hàng đợi bắt đầu từ &quot;Hẹn giờ đăng&quot;; cron chạy mỗi phút, đăng lần lượt từng Page.
-        </p>
-      </div>
+    <div className="space-y-6">
+      <PageHeader
+        title="Tạo bài viết mới"
+        description='Hàng đợi bắt đầu từ "Hẹn giờ đăng"; cron chạy mỗi phút, đăng lần lượt từng Fanpage.'
+      />
 
-      {error && (
-        <div className="bg-red-50 text-red-600 px-4 py-3 rounded-md text-sm mb-6">
-          {error}
-        </div>
-      )}
+      {error && <div className={ui.alertError}>{error}</div>}
 
       <div className="space-y-6">
-        <div className="bg-white rounded-lg border border-gray-200 p-6 space-y-4">
+        <div className={`${ui.card} ${ui.cardPad} space-y-4`}>
           <label className="block text-sm font-medium text-gray-700">
             Đích đăng
           </label>
@@ -391,7 +400,7 @@ export default function NewPostPage() {
                 <select
                   value={workspaceAppId}
                   onChange={(e) => setWorkspaceAppId(e.target.value)}
-                  className="w-full max-w-md px-3 py-2 border border-gray-300 rounded-md text-sm"
+                  className={`${ui.select} w-full max-w-md`}
                 >
                   {apps.map((a) => (
                     <option key={a.id} value={a.id}>
@@ -409,6 +418,24 @@ export default function NewPostPage() {
                   </a>
                 </p>
               ) : (
+                <>
+                <div className="flex flex-wrap gap-2 mb-2">
+                  <button
+                    type="button"
+                    onClick={invertPageSelection}
+                    className={ui.btnSm}
+                  >
+                    Đảo ngược
+                  </button>
+                  <span className="text-xs text-gray-500 self-center">
+                    {selectedPageIds.size}/{appPages.length} Fanpage
+                  </span>
+                </div>
+                <PageCategorySelectBar
+                  pages={appPages}
+                  selected={selectedPageIds}
+                  onSelectedChange={setSelectedPageIds}
+                />
                 <div className="border border-gray-100 rounded-lg divide-y divide-gray-100">
                   <label className="flex items-center gap-3 px-4 py-3 bg-gray-50 cursor-pointer">
                     <input
@@ -447,10 +474,18 @@ export default function NewPostPage() {
                           {p.pageName.charAt(0)}
                         </div>
                       )}
-                      <span className="text-sm text-gray-900">{p.pageName}</span>
+                      <span className="text-sm text-gray-900 flex-1 min-w-0">
+                        {p.pageName}
+                        {p.categoryName ? (
+                          <span className="block text-[10px] text-gray-400 truncate">
+                            {p.categoryName}
+                          </span>
+                        ) : null}
+                      </span>
                     </label>
                   ))}
                 </div>
+                </>
               )}
               <p className="text-xs text-gray-500">
                 Đã chọn {selectedPageIds.size} / {appPages.length} Fanpage trong
@@ -460,7 +495,7 @@ export default function NewPostPage() {
           )}
         </div>
 
-        <div className="bg-white rounded-lg border border-gray-200 p-6">
+        <div className={`${ui.card} ${ui.cardPad}`}>
           <label className="block text-sm font-medium text-gray-700 mb-2">
             Import từ Google Drive
           </label>
@@ -468,10 +503,10 @@ export default function NewPostPage() {
             <button
               type="button"
               onClick={() => setDriveImportType("text")}
-              className={`px-3 py-1.5 rounded-md text-sm ${
+              className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
                 driveImportType === "text"
                   ? "bg-green-600 text-white"
-                  : "bg-gray-100 text-gray-600"
+                  : "bg-gray-100 text-gray-600 hover:bg-gray-200"
               }`}
             >
               Nội dung text
@@ -479,10 +514,10 @@ export default function NewPostPage() {
             <button
               type="button"
               onClick={() => setDriveImportType("media")}
-              className={`px-3 py-1.5 rounded-md text-sm ${
+              className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
                 driveImportType === "media"
                   ? "bg-green-600 text-white"
-                  : "bg-gray-100 text-gray-600"
+                  : "bg-gray-100 text-gray-600 hover:bg-gray-200"
               }`}
             >
               Ảnh / Video
@@ -493,21 +528,21 @@ export default function NewPostPage() {
               type="url"
               value={driveUrl}
               onChange={(e) => setDriveUrl(e.target.value)}
-              className="flex-1 px-3 py-2 border border-gray-300 rounded-md text-sm"
+              className={`${ui.input} flex-1`}
               placeholder="Link Google Docs / Drive"
             />
             <button
               type="button"
               onClick={handleImportDrive}
               disabled={importing || !driveUrl.trim()}
-              className="bg-green-600 text-white py-2 px-4 rounded-md text-sm disabled:opacity-50"
+              className={ui.btnSuccess}
             >
               {importing ? "..." : "Import"}
             </button>
           </div>
         </div>
 
-        <div className="bg-white rounded-lg border border-gray-200 p-6">
+        <div className={`${ui.card} ${ui.cardPad}`}>
           <label className="block text-sm font-medium text-gray-700 mb-2">
             Tải video từ YouTube
           </label>
@@ -520,21 +555,21 @@ export default function NewPostPage() {
               type="url"
               value={youtubeUrl}
               onChange={(e) => setYoutubeUrl(e.target.value)}
-              className="flex-1 px-3 py-2 border border-gray-300 rounded-md text-sm"
+              className={`${ui.input} flex-1`}
               placeholder="https://www.youtube.com/watch?v=..."
             />
             <button
               type="button"
               onClick={handleImportYouTube}
               disabled={importingYt || !youtubeUrl.trim()}
-              className="bg-red-600 text-white py-2 px-4 rounded-md text-sm disabled:opacity-50"
+              className="inline-flex items-center justify-center bg-red-600 text-white text-sm font-medium px-4 py-2 rounded-lg hover:bg-red-700 disabled:opacity-50 transition-colors"
             >
               {importingYt ? "Đang tải..." : "Tải video"}
             </button>
           </div>
         </div>
 
-        <div className="bg-white rounded-lg border border-gray-200 p-6 space-y-6">
+        <div className={`${ui.card} ${ui.cardPad} space-y-6`}>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
               Nội dung bài viết
@@ -543,7 +578,7 @@ export default function NewPostPage() {
               value={content}
               onChange={(e) => setContent(e.target.value)}
               rows={8}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm resize-y"
+              className={ui.textarea}
               placeholder="Viết nội dung bài đăng Facebook..."
             />
           </div>
@@ -555,7 +590,7 @@ export default function NewPostPage() {
               value={firstComment}
               onChange={(e) => setFirstComment(e.target.value)}
               rows={3}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm resize-y"
+              className={ui.textarea}
               placeholder="Tùy chọn — sau khi đăng bài, hệ thống tự comment dưới bài (tên Page)."
             />
             <p className="mt-1 text-xs text-gray-500">
@@ -566,7 +601,7 @@ export default function NewPostPage() {
           </div>
         </div>
 
-        <div className="bg-white rounded-lg border border-gray-200 p-6">
+        <div className={`${ui.card} ${ui.cardPad}`}>
           <label className="block text-sm font-medium text-gray-700 mb-2">
             Ảnh / Video
           </label>
@@ -606,13 +641,13 @@ export default function NewPostPage() {
             type="button"
             onClick={() => fileInputRef.current?.click()}
             disabled={uploading}
-            className="border border-gray-300 text-gray-700 py-2 px-4 rounded-md text-sm disabled:opacity-50"
+            className={`${ui.btnSecondary} disabled:opacity-50`}
           >
             {uploading ? "Đang tải..." : "Thêm ảnh/video"}
           </button>
         </div>
 
-        <div className="bg-white rounded-lg border border-gray-200 p-6">
+        <div className={`${ui.card} ${ui.cardPad}`}>
           <label className="block text-sm font-medium text-gray-700 mb-2">
             Hẹn giờ đăng
           </label>
@@ -621,7 +656,7 @@ export default function NewPostPage() {
             value={scheduledAt}
             onChange={(e) => setScheduledAt(e.target.value)}
             min={new Date().toISOString().slice(0, 16)}
-            className="w-full max-w-md px-3 py-2 border border-gray-300 rounded-md text-sm"
+            className={`${ui.input} w-full max-w-md`}
           />
           <p className="mt-1 text-xs text-gray-500">
             Queue chỉ chạy từ thời điểm này. Mỗi Page trong batch cách nhau ~1 phút (cron).
@@ -633,7 +668,7 @@ export default function NewPostPage() {
             type="button"
             onClick={handleSaveDraft}
             disabled={saving || scheduling}
-            className="bg-gray-600 text-white py-2 px-6 rounded-md text-sm disabled:opacity-50"
+            className="inline-flex items-center justify-center bg-gray-600 text-white text-sm font-medium px-6 py-2 rounded-lg hover:bg-gray-700 disabled:opacity-50 transition-colors"
           >
             {saving ? "Đang lưu..." : "Lưu nháp"}
           </button>
@@ -641,7 +676,7 @@ export default function NewPostPage() {
             type="button"
             onClick={handleSchedule}
             disabled={saving || scheduling || !scheduledAt || !canPublish}
-            className="bg-blue-600 text-white py-2 px-6 rounded-md text-sm disabled:opacity-50"
+            className={ui.btnPrimary}
           >
             {scheduling ? "Đang xử lý..." : "Hẹn giờ đăng (queue)"}
           </button>
@@ -649,14 +684,14 @@ export default function NewPostPage() {
             type="button"
             onClick={handlePostNow}
             disabled={saving || scheduling || !canPublish}
-            className="bg-green-600 text-white py-2 px-6 rounded-md text-sm disabled:opacity-50"
+            className={ui.btnSuccess}
           >
             Đăng ngay (vào queue)
           </button>
           <button
             type="button"
             onClick={() => router.push("/posts")}
-            className="border border-gray-300 text-gray-700 py-2 px-6 rounded-md text-sm"
+            className={ui.btnSecondary}
           >
             Hủy
           </button>

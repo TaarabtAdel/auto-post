@@ -4,6 +4,7 @@ export type PageExportRow = {
   pageName: string;
   pageId: string;
   workspaceAppName: string | null;
+  categoryName?: string | null;
   facebookAppId: string | null;
   tokenStatus: string;
   tokenRenewedAt: string | null;
@@ -32,6 +33,7 @@ export function buildPagesExportCsv(rows: PageExportRow[]): string {
     "Tên Fanpage",
     "Facebook Page ID",
     "Link Fanpage",
+    "Danh mục",
     "Facebook App",
     "Facebook App ID",
     "Trạng thái token",
@@ -49,6 +51,7 @@ export function buildPagesExportCsv(rows: PageExportRow[]): string {
         r.pageName,
         r.pageId,
         getFacebookPageUrl(r.pageId),
+        r.categoryName ?? "",
         r.workspaceAppName ?? "",
         r.facebookAppId ?? "",
         TOKEN_STATUS_LABEL[r.tokenStatus] ?? r.tokenStatus,

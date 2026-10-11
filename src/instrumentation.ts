@@ -17,6 +17,9 @@ export async function register() {
     migratePostPagesSchema();
     await migrateLegacyPostPageLinks();
 
+    const { migratePageCategoriesSchema } = await import("@/lib/page-categories");
+    migratePageCategoriesSchema();
+
     const { startScheduler } = await import("@/lib/scheduler");
     startScheduler();
   } else {

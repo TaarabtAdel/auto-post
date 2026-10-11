@@ -3,6 +3,7 @@ import { getAppSession } from "@/lib/app-session";
 import { headers } from "next/headers";
 import { db } from "@/lib/db";
 import { facebookPage } from "@/db/schema/facebook-page";
+import { pageCategory } from "@/db/schema/page-category";
 import { eq, and } from "drizzle-orm";
 import { verifyPageToken } from "@/lib/facebook";
 import { encrypt } from "@/lib/crypto";
@@ -27,9 +28,12 @@ export async function GET(request: NextRequest) {
       pageAvatar: facebookPage.pageAvatar,
       tokenStatus: facebookPage.tokenStatus,
       workspaceAppId: facebookPage.workspaceAppId,
+      categoryId: facebookPage.categoryId,
+      categoryName: pageCategory.name,
       createdAt: facebookPage.createdAt,
     })
     .from(facebookPage)
+    .leftJoin(pageCategory, eq(facebookPage.categoryId, pageCategory.id))
     .where(eq(facebookPage.userId, session.user.id));
 
   if (filterApp === "unassigned") {

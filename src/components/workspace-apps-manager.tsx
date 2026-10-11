@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { ui } from "@/lib/dashboard-ui";
 
 export interface WorkspaceAppRow {
   id: string;
@@ -143,7 +144,7 @@ export function WorkspaceAppsManager({ initialApps }: Props) {
 
   return (
     <div className="space-y-8">
-      <div className="bg-white rounded-lg border border-gray-200 p-6">
+      <div className={`${ui.card} ${ui.cardPad}`}>
         <h3 className="text-lg font-medium text-gray-900 mb-1">
           {editingId ? "Sửa App" : "Tạo App mới"}
         </h3>
@@ -164,14 +165,10 @@ export function WorkspaceAppsManager({ initialApps }: Props) {
         </p>
 
         {error && (
-          <div className="bg-red-50 text-red-600 px-4 py-3 rounded-md text-sm mb-4">
-            {error}
-          </div>
+          <div className={`mb-4 ${ui.alertError}`}>{error}</div>
         )}
         {success && (
-          <div className="bg-green-50 text-green-600 px-4 py-3 rounded-md text-sm mb-4">
-            {success}
-          </div>
+          <div className={`mb-4 ${ui.alertSuccess}`}>{success}</div>
         )}
 
         <form onSubmit={handleSubmit} className="space-y-4 max-w-xl">
@@ -182,7 +179,7 @@ export function WorkspaceAppsManager({ initialApps }: Props) {
             <input
               value={name}
               onChange={(e) => setName(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+              className={ui.input}
               placeholder="VD: Shop ABC Fanpage"
             />
           </div>
@@ -194,7 +191,7 @@ export function WorkspaceAppsManager({ initialApps }: Props) {
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               rows={2}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+              className={ui.input}
               placeholder="Ghi chú nội bộ (tùy chọn)"
             />
           </div>
@@ -205,7 +202,7 @@ export function WorkspaceAppsManager({ initialApps }: Props) {
             <input
               value={facebookAppId}
               onChange={(e) => setFacebookAppId(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-mono"
+              className={`${ui.input} font-mono`}
               placeholder="1631592615023549"
             />
           </div>
@@ -217,7 +214,7 @@ export function WorkspaceAppsManager({ initialApps }: Props) {
               type="password"
               value={facebookAppSecret}
               onChange={(e) => setFacebookAppSecret(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-mono"
+              className={`${ui.input} font-mono`}
               autoComplete="off"
             />
           </div>
@@ -232,7 +229,7 @@ export function WorkspaceAppsManager({ initialApps }: Props) {
                 setUserAccessToken(e.target.value);
                 setClearUserToken(false);
               }}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-mono"
+              className={`${ui.input} font-mono`}
               placeholder={
                 editingId
                   ? "Dán token mới hoặc tick xóa bên dưới"
@@ -264,7 +261,7 @@ export function WorkspaceAppsManager({ initialApps }: Props) {
             <button
               type="submit"
               disabled={loading}
-              className="bg-blue-600 text-white py-2 px-4 rounded-md text-sm hover:bg-blue-700 disabled:opacity-50"
+              className={ui.btnPrimary}
             >
               {loading ? "Đang lưu..." : editingId ? "Cập nhật" : "Tạo App"}
             </button>
@@ -294,7 +291,7 @@ export function WorkspaceAppsManager({ initialApps }: Props) {
             {apps.map((app) => (
               <li
                 key={app.id}
-                className="bg-white border border-gray-200 rounded-lg p-4 flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3"
+                className={`${ui.card} ${ui.cardPadSm} flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3`}
               >
                 <div>
                   <p className="font-medium text-gray-900">{app.name}</p>

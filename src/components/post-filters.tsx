@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { getFacebookPostUrl } from "@/lib/facebook-page-url";
 import { describeDeleteImpact } from "@/lib/post-delete-impact";
+import { ui } from "@/lib/dashboard-ui";
 
 interface PostPageMeta {
   facebookPageId: string;
@@ -167,7 +168,7 @@ export function PostFilters({
   return (
     <>
       {runError && (
-        <div className="mb-3 bg-red-50 text-red-600 px-3 py-2 rounded-lg text-sm">
+        <div className={`mb-3 ${ui.alertError}`}>
           {runError}
         </div>
       )}
@@ -180,7 +181,7 @@ export function PostFilters({
           type="button"
           onClick={runQueueNow}
           disabled={queueRunning}
-          className="text-sm font-medium bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 disabled:opacity-50"
+          className={ui.btnSuccess}
         >
           {queueRunning ? "Running…" : "Run now (cả queue)"}
         </button>
@@ -193,7 +194,7 @@ export function PostFilters({
             <button
               key={tab.key}
               onClick={() => setFilter(tab.key)}
-              className={`px-4 py-2 rounded-md text-sm transition-colors whitespace-nowrap ${
+              className={`px-4 py-2 rounded-lg text-sm transition-colors whitespace-nowrap ${
                 filter === tab.key
                   ? "bg-white text-gray-900 shadow-sm font-medium"
                   : "text-gray-600 hover:text-gray-900"
@@ -211,7 +212,7 @@ export function PostFilters({
       </div>
 
       {filtered.length > 0 ? (
-        <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
+        <div className={ui.tableShell}>
           <div className="overflow-x-auto">
             <table className="w-full text-sm text-left">
               <thead className="bg-gray-50 text-gray-600 border-b border-gray-200">
@@ -337,7 +338,7 @@ export function PostFilters({
                         <div className="flex flex-wrap items-center justify-end gap-1.5">
                           <Link
                             href={`/posts/${p.id}/edit`}
-                            className="inline-flex items-center text-xs font-medium text-blue-700 bg-blue-50 border border-blue-200 hover:bg-blue-100 px-2.5 py-1 rounded-md"
+                            className="inline-flex items-center text-xs font-medium text-blue-700 bg-blue-50 border border-blue-200 hover:bg-blue-100 px-2.5 py-1 rounded-lg"
                           >
                             Sửa
                           </Link>
@@ -346,7 +347,7 @@ export function PostFilters({
                               type="button"
                               onClick={() => runPostNow(p.id)}
                               disabled={runningPostId === p.id || queueRunning}
-                              className="text-xs font-medium text-white bg-green-600 hover:bg-green-700 px-2.5 py-1 rounded-md disabled:opacity-50"
+                              className="text-xs font-medium text-white bg-green-600 hover:bg-green-700 px-2.5 py-1 rounded-lg disabled:opacity-50"
                             >
                               {runningPostId === p.id ? "…" : "Run now"}
                             </button>
@@ -356,7 +357,7 @@ export function PostFilters({
                               href={fbUrl}
                               target="_blank"
                               rel="noopener noreferrer"
-                              className="text-xs font-medium text-gray-700 border border-gray-200 hover:bg-gray-50 px-2.5 py-1 rounded-md"
+                              className="text-xs font-medium text-gray-700 border border-gray-200 hover:bg-gray-50 px-2.5 py-1 rounded-lg"
                             >
                               Facebook
                             </a>
@@ -366,7 +367,7 @@ export function PostFilters({
                               type="button"
                               onClick={() => deletePost(p.id, p.status)}
                               disabled={deletingPostId === p.id || queueRunning}
-                              className="text-xs font-medium text-red-700 border border-red-200 hover:bg-red-50 px-2.5 py-1 rounded-md disabled:opacity-50"
+                              className="text-xs font-medium text-red-700 border border-red-200 hover:bg-red-50 px-2.5 py-1 rounded-lg disabled:opacity-50"
                               title="Chỉ xóa trong AutoPost; bài Facebook (nếu đã đăng) vẫn còn"
                             >
                               {deletingPostId === p.id ? "…" : "Xóa"}

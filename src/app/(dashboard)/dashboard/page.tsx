@@ -7,6 +7,8 @@ import { facebookPage } from "@/db/schema/facebook-page";
 import { eq, desc } from "drizzle-orm";
 import Link from "next/link";
 import { StatsCards } from "@/components/stats-cards";
+import { PageHeader } from "@/components/page-header";
+import { ui } from "@/lib/dashboard-ui";
 
 export const metadata: Metadata = {
   title: "Dashboard",
@@ -56,17 +58,13 @@ export default async function DashboardPage() {
     .limit(5);
 
   return (
-    <div>
-      {/* Header */}
-      <div className="mb-8">
-        <h2 className="text-2xl font-bold text-gray-900">
-          Xin chào, {session!.user.name} 👋
-        </h2>
-        <p className="text-gray-500 mt-1">Tổng quan hoạt động AutoPost</p>
-      </div>
+    <div className="space-y-6">
+      <PageHeader
+        title={`Xin chào, ${session!.user.name}`}
+        description="Tổng quan hoạt động AutoPost"
+      />
 
-      {/* Stats */}
-      <div className="mb-8">
+      <div>
         <StatsCards
           stats={[
             { label: "Tổng bài viết", value: stats.totalPosts, icon: "📝", color: "text-gray-900" },
@@ -77,8 +75,7 @@ export default async function DashboardPage() {
         />
       </div>
 
-      {/* Quick actions */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <Link
           href="/posts/new"
           className="bg-blue-600 text-white rounded-xl p-5 hover:bg-blue-700 transition-colors group"
@@ -107,8 +104,7 @@ export default async function DashboardPage() {
         </Link>
       </div>
 
-      {/* Recent posts */}
-      <div className="bg-white rounded-xl border border-gray-200">
+      <div className={ui.tableShell}>
         <div className="flex justify-between items-center p-5 border-b border-gray-100">
           <h3 className="font-semibold text-gray-900">Bài viết gần đây</h3>
           <Link
@@ -145,7 +141,7 @@ export default async function DashboardPage() {
             <p className="text-gray-400 mb-3">Chưa có bài viết nào</p>
             <Link
               href="/posts/new"
-              className="inline-flex items-center gap-2 bg-blue-600 text-white text-sm py-2 px-4 rounded-lg hover:bg-blue-700 transition-colors"
+              className={ui.btnPrimary}
             >
               ✨ Tạo bài viết đầu tiên
             </Link>
