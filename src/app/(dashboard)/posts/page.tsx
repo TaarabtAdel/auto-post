@@ -8,6 +8,8 @@ import { workspaceApp } from "@/db/schema/workspace-app";
 import { eq, desc, inArray } from "drizzle-orm";
 import Link from "next/link";
 import { PostFilters } from "@/components/post-filters";
+import { PageHeader } from "@/components/page-header";
+import { ui } from "@/lib/dashboard-ui";
 import { drainPublishQueue } from "@/lib/publish-queue-processor";
 import { loadPostPagesDisplay } from "@/lib/post-pages";
 
@@ -120,21 +122,16 @@ export default async function PostsPage() {
   };
 
   return (
-    <div>
-      <div className="flex justify-between items-center mb-6">
-        <div>
-          <h2 className="text-2xl font-bold text-gray-900">Bài viết</h2>
-          <p className="text-gray-600 mt-1">
-            Quản lý bài viết của bạn.
-          </p>
-        </div>
-        <Link
-          href="/posts/new"
-          className="bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700 text-sm transition-colors"
-        >
-          + Tạo bài viết
-        </Link>
-      </div>
+    <div className="space-y-6">
+      <PageHeader
+        title="Bài viết"
+        description="Một bài có thể đăng nhiều Fanpage. Quản lý hàng đợi và trạng thái đăng."
+        actions={
+          <Link href="/posts/new" className={ui.btnPrimary}>
+            + Tạo bài viết
+          </Link>
+        }
+      />
 
       <PostFilters posts={postsWithMeta} counts={counts} />
     </div>

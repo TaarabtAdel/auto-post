@@ -363,16 +363,9 @@ export function ReelEditor() {
     }`;
 
   return (
-    <div className="min-h-[calc(100vh-4rem)] bg-[#0b0b0d] text-white -mx-4 sm:-mx-6 lg:-mx-8 -my-8 px-4 sm:px-6 lg:px-8 py-6">
-      <div className="mb-4">
-        <h2 className="text-xl font-semibold">Tạo REEL</h2>
-        <p className="text-sm text-white/50 mt-0.5">
-          Tạo video reel từ tiêu đề, ảnh/video và nhạc — xem trước tiếp
-        </p>
-      </div>
-
+    <div className="bg-[#0b0b0d] text-white border border-gray-800 rounded-xl p-4 sm:p-6 min-h-[480px]">
       {error && (
-        <div className="mb-4 bg-red-500/15 text-red-300 px-4 py-2 rounded-md text-sm">
+        <div className="mb-4 bg-red-500/15 text-red-300 px-4 py-2 rounded-lg text-sm border border-red-500/20">
           {error}
         </div>
       )}

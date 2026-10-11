@@ -1,8 +1,13 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import type { YouTubeSearchHit } from "@/lib/youtube";
+import {
+  normalizeYouTubeUrl,
+  parseYouTubeUrlsFromText,
+  type YouTubeSearchHit,
+} from "@/lib/youtube-url";
 import { SplitContentModal } from "@/components/split-content-modal";
+import { ui } from "@/lib/dashboard-ui";
 
 const LS_KEYWORDS = "ytloc_keywords";
 const LS_WATCHED = "ytloc_watched";
@@ -122,7 +127,9 @@ export function YouTubeLocVideo() {
   const [cmdCopied, setCmdCopied] = useState(false);
   const [showSplit, setShowSplit] = useState(false);
   const [downloading, setDownloading] = useState(false);
-  const [downloadLinks, setDownloadLinks] = useState<{ title: string; url: string }[]>([]);
+  const [downloadLinks, setDownloadLinks] = useState<
+    { title: string; url: string; fileName?: string }[]
+  >([]);
 
   useEffect(() => {
     try {
@@ -190,6 +197,42 @@ export function YouTubeLocVideo() {
     return merged;
   }
 
+  async function fetchHitFromUrl(
+    url: string
+  ): Promise<
+    | { ok: true; hit: YouTubeSearchHit; already: boolean }
+    | { ok: false; error: string }
+  > {
+    const res = await fetch("/api/import/youtube", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "info", url }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      return { ok: false, error: data.error || "Không lấy được video từ URL." };
+    }
+    const info = data.info as {
+      id?: string;
+      title?: string;
+      channel?: string;
+      durationSec?: number;
+      webpageUrl?: string;
+    };
+    if (!info?.id) {
+      return { ok: false, error: "Không lấy được ID video." };
+    }
+    const hit: YouTubeSearchHit = {
+      id: info.id,
+      title: info.title || "(không tiêu đề)",
+      channel: info.channel || "",
+      durationSec: info.durationSec || 0,
+      url: info.webpageUrl || url,
+    };
+    const already = results.some((v) => v.id === hit.id);
+    return { ok: true, hit, already };
+  }
+
   async function addByUrl(rawUrl: string) {
     const url = rawUrl.trim();
     if (!url || !looksLikeYouTubeUrl(url)) {
@@ -200,43 +243,76 @@ export function YouTubeLocVideo() {
     setError("");
     setStatus("Đang lấy thông tin video...");
     try {
-      const res = await fetch("/api/import/youtube", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "info", url }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        setError(data.error || "Không lấy được video từ URL.");
+      const result = await fetchHitFromUrl(url);
+      if (!result.ok) {
+        setError(result.error);
         setStatus("");
         return;
       }
-      const info = data.info as {
-        id?: string;
-        title?: string;
-        channel?: string;
-        durationSec?: number;
-        webpageUrl?: string;
-      };
-      if (!info?.id) {
-        setError("Không lấy được ID video.");
-        setStatus("");
-        return;
-      }
-      const hit: YouTubeSearchHit = {
-        id: info.id,
-        title: info.title || "(không tiêu đề)",
-        channel: info.channel || "",
-        durationSec: info.durationSec || 0,
-        url: info.webpageUrl || url,
-      };
-      const already = results.some((v) => v.id === hit.id);
-      mergeHits([hit]);
+      mergeHits([result.hit]);
       setUrlInput("");
-      setStatus(already ? `Video đã có trong danh sách: ${hit.title}` : `Đã thêm: ${hit.title}`);
+      setStatus(
+        result.already
+          ? `Video đã có trong danh sách: ${result.hit.title}`
+          : `Đã thêm: ${result.hit.title}`
+      );
     } catch {
       setError("Lỗi kết nối khi thêm URL.");
       setStatus("");
+    } finally {
+      setAddingUrl(false);
+    }
+  }
+
+  async function addUrlsFromInput() {
+    const urls = parseYouTubeUrlsFromText(urlInput);
+    if (urls.length === 0) {
+      setError(
+        "Dán ít nhất một link YouTube hợp lệ (mỗi dòng một link, hoặc cách bằng dấu phẩy / khoảng trắng)."
+      );
+      return;
+    }
+    if (urls.length === 1) {
+      await addByUrl(urls[0]);
+      return;
+    }
+
+    setAddingUrl(true);
+    setError("");
+    let added = 0;
+    let skipped = 0;
+    let failed = 0;
+    const hitsToMerge: YouTubeSearchHit[] = [];
+    const knownIds = new Set(results.map((r) => r.id));
+
+    try {
+      for (let i = 0; i < urls.length; i++) {
+        setStatus(`Đang thêm ${i + 1}/${urls.length}…`);
+        try {
+          const result = await fetchHitFromUrl(urls[i]);
+          if (!result.ok) {
+            failed++;
+            continue;
+          }
+          if (knownIds.has(result.hit.id)) {
+            skipped++;
+          } else {
+            added++;
+            knownIds.add(result.hit.id);
+            hitsToMerge.push(result.hit);
+          }
+        } catch {
+          failed++;
+        }
+      }
+
+      if (hitsToMerge.length > 0) mergeHits(hitsToMerge);
+
+      setUrlInput("");
+      const parts = [`${added} video mới`];
+      if (skipped > 0) parts.push(`${skipped} đã có sẵn`);
+      if (failed > 0) parts.push(`${failed} lỗi`);
+      setStatus(`Đã xử lý ${urls.length} link: ${parts.join(", ")}.`);
     } finally {
       setAddingUrl(false);
     }
@@ -332,7 +408,35 @@ export function YouTubeLocVideo() {
   }
 
   function selectedVideos(): YouTubeSearchHit[] {
-    return visible.filter((v) => selected.has(v.id));
+    return results.filter((v) => selected.has(v.id));
+  }
+
+  function removeFromList(ids: string[]) {
+    if (ids.length === 0) return;
+    setResults((prev) => {
+      const next = prev.filter((v) => !ids.includes(v.id));
+      localStorage.setItem(LS_RESULTS, JSON.stringify(next));
+      return next;
+    });
+    setSelected((prev) => {
+      const next = new Set(prev);
+      for (const id of ids) next.delete(id);
+      return next;
+    });
+    setStatus(`Đã xóa ${ids.length} video khỏi danh sách.`);
+  }
+
+  function removeOneFromList(id: string) {
+    removeFromList([id]);
+  }
+
+  function removeSelectedFromList() {
+    const ids = [...selected];
+    if (ids.length === 0) {
+      setError("Chọn video cần xóa khỏi danh sách.");
+      return;
+    }
+    removeFromList(ids);
   }
 
   async function copyCommands() {
@@ -343,11 +447,6 @@ export function YouTubeLocVideo() {
     }
     await copyText(list.map((v) => commandFor(v, template)).join("\n\n"));
     setStatus(`Đã copy ${list.length} lệnh.`);
-  }
-
-  async function copyOne(v: YouTubeSearchHit) {
-    await copyText(commandFor(v, template));
-    setStatus("Đã copy lệnh + link.");
   }
 
   function splitNameHint() {
@@ -365,41 +464,105 @@ export function YouTubeLocVideo() {
     setStatus("Đã xóa từ khóa.");
   }
 
-  async function downloadSelected() {
+  /** Tải qua server → uploads (tạm ẩn nút; bật lại khi cần). */
+  async function downloadSelectedToUploads() {
     const list = selectedVideos();
     if (list.length === 0) {
-      setError("Chọn ít nhất 1 video.");
+      setError("Chọn ít nhất 1 video (tick cột Chọn — không phụ thuộc bộ lọc đã xem).");
       return;
     }
     setDownloading(true);
     setError("");
     setDownloadLinks([]);
-    const links: { title: string; url: string }[] = [];
+    const links: { title: string; url: string; fileName?: string }[] = [];
+    const failures: string[] = [];
+
     for (const [i, v] of list.entries()) {
       setStatus(`Đang tải ${i + 1}/${list.length}: ${v.title}`);
+      let fetchUrl = v.url;
+      try {
+        fetchUrl = normalizeYouTubeUrl(v.url);
+      } catch {
+        failures.push(`${v.title}: link không hợp lệ`);
+        continue;
+      }
+
       try {
         const res = await fetch("/api/import/youtube", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ url: v.url, action: "download", quality: "720" }),
+          body: JSON.stringify({
+            url: fetchUrl,
+            action: "download",
+            quality: "720",
+          }),
         });
-        const data = await res.json();
+        let data: { url?: string; title?: string; fileName?: string; error?: string } =
+          {};
+        try {
+          data = await res.json();
+        } catch {
+          failures.push(`${v.title}: phản hồi server không hợp lệ (${res.status})`);
+          continue;
+        }
         if (res.ok && data.url) {
-          links.push({ title: data.title || v.title, url: data.url as string });
+          links.push({
+            title: data.title || v.title,
+            url: data.url,
+            fileName: data.fileName,
+          });
         } else {
-          setError(data.error || `Lỗi tải: ${v.title}`);
+          const msg =
+            data.error ||
+            (res.status === 429
+              ? "Quá giới hạn tải — đợi vài phút."
+              : `HTTP ${res.status}`);
+          failures.push(`${v.title}: ${msg}`);
         }
       } catch {
-        setError(`Lỗi kết nối khi tải: ${v.title}`);
+        failures.push(`${v.title}: lỗi kết nối (timeout hoặc mạng)`);
       }
     }
+
     setDownloading(false);
     setDownloadLinks(links);
+    if (failures.length > 0) {
+      setError(failures.slice(0, 5).join(" · ") + (failures.length > 5 ? " …" : ""));
+    }
     setStatus(
       links.length
-        ? `Tải xong ${links.length}/${list.length} video.`
-        : `Tải thất bại 0/${list.length} video.`
+        ? `Tải xong ${links.length}/${list.length} video vào uploads.`
+        : `Không tải được video nào (${list.length} đã thử).`
     );
+  }
+
+  async function copySelectedLinksAndOpenYtsave() {
+    const list = selectedVideos();
+    if (list.length === 0) {
+      setError(
+        "Chọn ít nhất 1 video (tick cột Chọn — không phụ thuộc bộ lọc đã xem)."
+      );
+      return;
+    }
+    setError("");
+    const text = list
+      .map((v) => {
+        try {
+          return normalizeYouTubeUrl(v.url);
+        } catch {
+          return v.url;
+        }
+      })
+      .join("\n");
+    try {
+      await copyText(text);
+    } catch {
+      setError("Không copy được — hãy copy link thủ công.");
+      return;
+    }
+    setStatus(`Đã copy ${list.length} link.`);
+    alert("Đã sao chép link. Nhấn OK để mở YTSave.");
+    window.open("https://ytsave.to/en2", "_blank", "noopener,noreferrer");
   }
 
   function saveTemplate() {
@@ -408,57 +571,67 @@ export function YouTubeLocVideo() {
     setStatus("Đã lưu mẫu lệnh TXT.");
   }
 
-  const btn =
-    "px-3 py-1.5 text-xs border border-gray-400 bg-gray-100 hover:bg-gray-200 rounded-sm disabled:opacity-50";
-
   return (
-    <div className="bg-[#f0f0f0] border border-gray-300 rounded-sm p-3 space-y-2 text-[13px] text-gray-900">
-      <h2 className="text-lg font-bold tracking-wide">TÌM VIDEO YOUTUBE</h2>
-      <p className="text-[12px] text-gray-600">
-        Bấm tên video: sao chép lệnh kèm link • Nhấp đúp: mở YouTube • Video trên
-        15 phút
+    <div className={`${ui.card} ${ui.cardPad} space-y-4 text-sm`}>
+      <p className={ui.hint}>
+        Bấm tên video: sao chép lệnh kèm link · Nhấp đúp: mở YouTube · Tìm kiếm ưu tiên
+        video trên 15 phút
       </p>
 
-      <div className="flex gap-2">
+      <div className="flex flex-wrap gap-2">
         <input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && handleSearch()}
-          className="flex-1 border border-gray-400 px-2 py-1 bg-white"
+          className={`${ui.input} flex-1 min-w-[200px]`}
           placeholder="Nhập từ khóa tìm kiếm YouTube..."
         />
         <select
           value={maxDur}
           onChange={(e) => setMaxDur(e.target.value)}
-          className="border border-gray-400 bg-white px-1"
+          className={ui.select}
         >
           <option value="30:00">30:00</option>
           <option value="60:00">60:00</option>
           <option value="100:00">100:00</option>
           <option value="180:00">180:00</option>
         </select>
-        <button type="button" className={btn} disabled={busy} onClick={handleSearch}>
+        <button
+          type="button"
+          className={ui.btnPrimary}
+          disabled={busy}
+          onClick={handleSearch}
+        >
           {busy ? "..." : "Tìm kiếm"}
         </button>
       </div>
 
-      <div className="flex gap-2">
-        <input
+      <div className="flex gap-2 items-start">
+        <textarea
           value={urlInput}
           onChange={(e) => setUrlInput(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && addByUrl(urlInput)}
-          className="flex-1 border border-gray-400 px-2 py-1 bg-white"
-          placeholder="Dán link YouTube để thêm vào danh sách..."
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+              e.preventDefault();
+              void addUrlsFromInput();
+            }
+          }}
+          rows={3}
+          className={`${ui.textarea} flex-1 min-h-[4.5rem]`}
+          placeholder="Dán một hoặc nhiều link YouTube (mỗi dòng một link, hoặc cách bằng dấu phẩy)…"
         />
         <button
           type="button"
-          className={btn}
+          className={ui.btnSecondary}
           disabled={addingUrl}
-          onClick={() => addByUrl(urlInput)}
+          onClick={() => void addUrlsFromInput()}
         >
           {addingUrl ? "..." : "Thêm URL"}
         </button>
       </div>
+      <p className="text-xs text-gray-500">
+        Ctrl+Enter (⌘+Enter trên Mac) để thêm hàng loạt.
+      </p>
 
       <div className="flex flex-wrap items-center gap-2">
         <span>Từ khóa đã lưu:</span>
@@ -468,7 +641,7 @@ export function YouTubeLocVideo() {
             setSavedKeyword(e.target.value);
             setQuery(e.target.value);
           }}
-          className="min-w-48 border border-gray-400 bg-white px-1 py-0.5"
+          className={`${ui.select} min-w-48`}
         >
           <option value="">—</option>
           {keywords.map((k) => (
@@ -477,12 +650,12 @@ export function YouTubeLocVideo() {
             </option>
           ))}
         </select>
-        <button type="button" className={btn} onClick={removeKeyword}>
+        <button type="button" className={ui.btnSm} onClick={removeKeyword}>
           Xóa từ khóa
         </button>
         <button
           type="button"
-          className={btn}
+          className={ui.btnSm}
           onClick={() => {
             setSeenFilter("all");
             setStatus(`Đang hiện tất cả ${results.length} video đã tìm.`);
@@ -519,26 +692,27 @@ export function YouTubeLocVideo() {
             Đã xem
           </label>
         </div>
-        <button type="button" className={btn} onClick={() => setShowHistory((v) => !v)}>
+        <button type="button" className={ui.btnSm} onClick={() => setShowHistory((v) => !v)}>
           Lịch sử đã xem
         </button>
       </div>
 
-      <div className="border border-gray-400 bg-white max-h-[420px] overflow-auto">
+      <div className={`${ui.tableShell} max-h-[420px] overflow-auto`}>
         <table className="w-full text-left border-collapse">
-          <thead className="sticky top-0 bg-[#e8e8e8]">
-            <tr className="border-b border-gray-300">
-              <th className="w-14 p-1 font-medium">Chọn</th>
-              <th className="w-20 p-1 font-medium">Đã xem</th>
-              <th className="p-1 font-medium">Tên video</th>
-              <th className="w-24 p-1 font-medium">Thời lượng</th>
-              <th className="w-48 p-1 font-medium">Kênh</th>
+          <thead className={`sticky top-0 ${ui.tableHead}`}>
+            <tr>
+              <th className={`${ui.th} w-14`}>Chọn</th>
+              <th className={`${ui.th} w-20`}>Đã xem</th>
+              <th className={ui.th}>Tên video</th>
+              <th className={`${ui.th} w-24`}>Thời lượng</th>
+              <th className={`${ui.th} w-48`}>Kênh</th>
+              <th className={`${ui.th} w-12 text-center`}>Xóa</th>
             </tr>
           </thead>
-          <tbody>
+          <tbody className="divide-y divide-gray-100">
             {visible.length === 0 ? (
               <tr>
-                <td colSpan={5} className="p-4 text-gray-500 text-center">
+                <td colSpan={6} className={`${ui.td} text-gray-500 text-center`}>
                   Chưa có kết quả. Nhập từ khóa hoặc dán link YouTube.
                 </td>
               </tr>
@@ -546,7 +720,7 @@ export function YouTubeLocVideo() {
               visible.map((v) => (
                 <tr
                   key={v.id}
-                  className="border-b border-gray-100 hover:bg-blue-50"
+                  className="hover:bg-gray-50/80"
                   onDoubleClick={() =>
                     window.open(v.url, "_blank", "noopener,noreferrer")
                   }
@@ -567,16 +741,27 @@ export function YouTubeLocVideo() {
                     />
                   </td>
                   <td className="p-1">
-                    <button
-                      type="button"
-                      className="text-left hover:underline"
-                      onClick={() => copyOne(v)}
+                    <a
+                      href={v.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-left text-blue-700 hover:underline"
                     >
                       {v.title}
-                    </button>
+                    </a>
                   </td>
                   <td className="p-1 whitespace-nowrap">{formatDuration(v.durationSec)}</td>
                   <td className="p-1 truncate">{v.channel}</td>
+                  <td className="p-1 text-center">
+                    <button
+                      type="button"
+                      className="text-red-600 hover:underline text-xs px-1"
+                      title="Xóa khỏi danh sách (không xóa file đã tải)"
+                      onClick={() => removeOneFromList(v.id)}
+                    >
+                      ✕
+                    </button>
+                  </td>
                 </tr>
               ))
             )}
@@ -584,13 +769,13 @@ export function YouTubeLocVideo() {
         </table>
       </div>
 
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-1">
-        <button type="button" className={btn} onClick={copyCommands}>
+      <div className="flex flex-wrap gap-2">
+        <button type="button" className={ui.btnSm} onClick={copyCommands}>
           Sao chép bộ lệnh
         </button>
         <button
           type="button"
-          className={btn}
+          className={ui.btnSm}
           onClick={() => {
             if (selectedVideos().length === 0) {
               setError("Chọn ít nhất 1 video.");
@@ -603,12 +788,12 @@ export function YouTubeLocVideo() {
         >
           Xem lệnh + link
         </button>
-        <button type="button" className={btn} onClick={() => setShowTemplate((v) => !v)}>
+        <button type="button" className={ui.btnSm} onClick={() => setShowTemplate((v) => !v)}>
           Đổi mẫu lệnh TXT
         </button>
         <button
           type="button"
-          className={btn}
+          className={ui.btnSm}
           onClick={() => {
             setError("");
             setShowSplit(true);
@@ -618,34 +803,43 @@ export function YouTubeLocVideo() {
         </button>
         <button
           type="button"
-          className={btn}
-          disabled={downloading}
-          onClick={downloadSelected}
+          className={ui.btnSuccess}
+          onClick={() => void copySelectedLinksAndOpenYtsave()}
         >
-          {downloading ? "Đang tải..." : "Tải video đã chọn"}
+          Tải video đã chọn
+        </button>
+        <button type="button" className={ui.btnSm} onClick={removeSelectedFromList}>
+          Xóa đã chọn khỏi list
         </button>
       </div>
-      <p className="text-[11px] text-gray-500">
-        Chọn rồi tải. Có thể tìm kiếm lúc tải.
+      <p className="text-xs text-gray-500">
+        «Tải video đã chọn»: copy link đang chọn → OK → mở YTSave. Xóa list chỉ gỡ khỏi
+        bảng, không xóa file đã tải trước đó.
       </p>
 
-      {error && <div className="text-red-600 text-xs">{error}</div>}
-      {status && <div className="text-gray-700 text-xs">{status}</div>}
+      {error && <div className={ui.alertError}>{error}</div>}
+      {status && <div className="text-gray-700 text-sm">{status}</div>}
       {downloadLinks.length > 0 && (
         <ul className="text-xs space-y-1">
           {downloadLinks.map((f) => (
             <li key={f.url}>
-              <a href={f.url} target="_blank" rel="noreferrer" className="text-blue-700 underline break-all">
-                {f.url}
+              <a
+                href={f.url}
+                target="_blank"
+                rel="noreferrer"
+                download={f.fileName}
+                className="text-blue-700 underline break-all"
+              >
+                {f.title}
               </a>
-              <span className="text-gray-500"> — {f.title}</span>
+              <span className="text-gray-500 text-[10px] block break-all">{f.url}</span>
             </li>
           ))}
         </ul>
       )}
 
       {showHistory && (
-        <div className="border border-gray-400 bg-white p-2 max-h-40 overflow-auto">
+        <div className={`${ui.card} ${ui.cardPadSm} max-h-40 overflow-auto`}>
           <p className="font-medium mb-1">Lịch sử đã xem ({watched.size})</p>
           {[...watched].length === 0 ? (
             <p className="text-gray-500">Chưa đánh dấu video nào.</p>
@@ -671,7 +865,7 @@ export function YouTubeLocVideo() {
           onClick={() => setShowCmdPreview(false)}
         >
           <div
-            className="bg-white w-full max-w-3xl max-h-[85vh] flex flex-col rounded-md shadow-lg border border-gray-300"
+            className={`${ui.card} w-full max-w-3xl max-h-[85vh] flex flex-col shadow-lg`}
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200">
@@ -679,7 +873,7 @@ export function YouTubeLocVideo() {
               <div className="flex items-center gap-2">
                 <button
                   type="button"
-                  className="bg-blue-600 text-white text-sm px-3 py-1.5 rounded-md"
+                  className={ui.btnSmPrimary}
                   onClick={async () => {
                     const text = selectedVideos()
                       .map((v) => commandFor(v, template))
@@ -727,7 +921,7 @@ export function YouTubeLocVideo() {
             rows={5}
             className="w-full border border-gray-300 p-2 font-mono text-xs"
           />
-          <button type="button" className={btn} onClick={saveTemplate}>
+          <button type="button" className={ui.btnPrimary} onClick={saveTemplate}>
             Lưu mẫu
           </button>
         </div>

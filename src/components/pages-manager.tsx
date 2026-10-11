@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getFacebookPageUrl } from "@/lib/facebook-page-url";
 import { downloadPagesSpreadsheet } from "@/lib/export-pages-spreadsheet";
 import { PAGE_COUNTRY_OPTIONS } from "@/lib/page-country-options";
+import { ui } from "@/lib/dashboard-ui";
 
 export interface PageRow {
   id: string;
@@ -17,8 +18,33 @@ export interface PageRow {
   tokenExpiresAt: string | null;
   workspaceAppId: string | null;
   workspaceAppName: string | null;
+  categoryId: string | null;
+  categoryName: string | null;
   postedCount: number;
   pendingCount: number;
+}
+
+export interface PageCategoryOption {
+  id: string;
+  name: string;
+  sortOrder: number;
+  pageCount?: number;
+}
+
+const CATEGORY_CHIP_COLORS = [
+  "bg-sky-100 text-sky-900 ring-sky-200",
+  "bg-violet-100 text-violet-900 ring-violet-200",
+  "bg-emerald-100 text-emerald-900 ring-emerald-200",
+  "bg-amber-100 text-amber-900 ring-amber-200",
+  "bg-rose-100 text-rose-900 ring-rose-200",
+  "bg-teal-100 text-teal-900 ring-teal-200",
+];
+
+function categoryAccentBg(categoryId: string, categories: PageCategoryOption[]) {
+  const idx = categories.findIndex((c) => c.id === categoryId);
+  const palette =
+    CATEGORY_CHIP_COLORS[idx >= 0 ? idx % CATEGORY_CHIP_COLORS.length : 0];
+  return palette.split(" ")[0] ?? "bg-gray-200";
 }
 
 function formatDateTime(dateStr: string | null) {
@@ -240,10 +266,11 @@ export interface AppOption {
 
 interface Props {
   initialPages: PageRow[];
+  initialCategories: PageCategoryOption[];
   apps: AppOption[];
 }
 
-type ModalKind = "create" | "edit" | "country" | null;
+type ModalKind = "create" | "edit" | "country" | "categories" | null;
 
 function PageActionsMenu({
   page,
@@ -423,7 +450,11 @@ function Modal({
   );
 }
 
-export function PagesManager({ initialPages, apps }: Props) {
+export function PagesManager({
+  initialPages,
+  initialCategories,
+  apps,
+}: Props) {
   const router = useRouter();
   const [pages, setPages] = useState(initialPages);
   const [modal, setModal] = useState<ModalKind>(null);
@@ -442,6 +473,13 @@ export function PagesManager({ initialPages, apps }: Props) {
   const [loadingToken, setLoadingToken] = useState(false);
   const [copied, setCopied] = useState(false);
   const [filterAppId, setFilterAppId] = useState<string>("all");
+  const [filterCategoryId, setFilterCategoryId] = useState<string>("all");
+  const [categories, setCategories] = useState(initialCategories);
+  const [newCategoryName, setNewCategoryName] = useState("");
+  const [categorySaving, setCategorySaving] = useState(false);
+  const [assigningCategoryPageId, setAssigningCategoryPageId] = useState<
+    string | null
+  >(null);
   const [renewSuccess, setRenewSuccess] = useState("");
   const [renewingPageId, setRenewingPageId] = useState<string | null>(null);
   const [renewBatchRunning, setRenewBatchRunning] = useState(false);
@@ -466,6 +504,10 @@ export function PagesManager({ initialPages, apps }: Props) {
   }, [initialPages]);
 
   useEffect(() => {
+    setCategories(initialCategories);
+  }, [initialCategories]);
+
+  useEffect(() => {
     let cancelled = false;
     const needsSync = initialPages.some(
       (p) => p.tokenStatus === "active" && !p.tokenExpiresAt && !p.tokenRenewedAt
@@ -488,12 +530,155 @@ export function PagesManager({ initialPages, apps }: Props) {
   }, [initialPages, router]);
 
   const filteredPages = useMemo(() => {
-    if (filterAppId === "all") return pages;
+    let list = pages;
     if (filterAppId === "unassigned") {
-      return pages.filter((p) => !p.workspaceAppId);
+      list = list.filter((p) => !p.workspaceAppId);
+    } else if (filterAppId !== "all") {
+      list = list.filter((p) => p.workspaceAppId === filterAppId);
     }
-    return pages.filter((p) => p.workspaceAppId === filterAppId);
-  }, [pages, filterAppId]);
+    if (filterCategoryId === "uncategorized") {
+      list = list.filter((p) => !p.categoryId);
+    } else if (filterCategoryId !== "all") {
+      list = list.filter((p) => p.categoryId === filterCategoryId);
+    }
+    return list;
+  }, [pages, filterAppId, filterCategoryId]);
+
+  async function assignPageCategory(pageId: string, categoryId: string | null) {
+    setAssigningCategoryPageId(pageId);
+    setError("");
+    try {
+      const res = await fetch(`/api/facebook-pages/${pageId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ categoryId }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error || "Không gán được danh mục.");
+        return;
+      }
+      const cat = categoryId
+        ? categories.find((c) => c.id === categoryId)
+        : null;
+      setPages((prev) =>
+        prev.map((p) =>
+          p.id === pageId
+            ? {
+                ...p,
+                categoryId,
+                categoryName: cat?.name ?? null,
+              }
+            : p
+        )
+      );
+      setCategories((prev) =>
+        prev.map((c) => {
+          const old = pages.find((p) => p.id === pageId);
+          let count = c.pageCount ?? 0;
+          if (old?.categoryId === c.id) count = Math.max(0, count - 1);
+          if (categoryId === c.id) count += 1;
+          return { ...c, pageCount: count };
+        })
+      );
+    } catch {
+      setError("Lỗi kết nối.");
+    } finally {
+      setAssigningCategoryPageId(null);
+    }
+  }
+
+  async function handleCreateCategory(e: React.FormEvent) {
+    e.preventDefault();
+    if (!newCategoryName.trim()) return;
+    setCategorySaving(true);
+    setError("");
+    try {
+      const res = await fetch("/api/page-categories", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: newCategoryName.trim() }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error || "Không tạo được danh mục.");
+        return;
+      }
+      setCategories((prev) => [...prev, data.category]);
+      setNewCategoryName("");
+    } catch {
+      setError("Lỗi kết nối.");
+    } finally {
+      setCategorySaving(false);
+    }
+  }
+
+  async function handleDeleteCategory(categoryId: string) {
+    const cat = categories.find((c) => c.id === categoryId);
+    if (!cat) return;
+    if (
+      !confirm(
+        `Xóa danh mục "${cat.name}"?\nCác Page trong danh mục sẽ chuyển về "Chưa phân loại".`
+      )
+    ) {
+      return;
+    }
+    setCategorySaving(true);
+    setError("");
+    try {
+      const res = await fetch(`/api/page-categories/${categoryId}`, {
+        method: "DELETE",
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error || "Không xóa được danh mục.");
+        return;
+      }
+      setCategories((prev) => prev.filter((c) => c.id !== categoryId));
+      setPages((prev) =>
+        prev.map((p) =>
+          p.categoryId === categoryId
+            ? { ...p, categoryId: null, categoryName: null }
+            : p
+        )
+      );
+      if (filterCategoryId === categoryId) setFilterCategoryId("all");
+    } catch {
+      setError("Lỗi kết nối.");
+    } finally {
+      setCategorySaving(false);
+    }
+  }
+
+  async function handleRenameCategory(categoryId: string, name: string) {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    setCategorySaving(true);
+    try {
+      const res = await fetch(`/api/page-categories/${categoryId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: trimmed }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error || "Không đổi tên được.");
+        return;
+      }
+      setCategories((prev) =>
+        prev.map((c) => (c.id === categoryId ? { ...c, name: trimmed } : c))
+      );
+      setPages((prev) =>
+        prev.map((p) =>
+          p.categoryId === categoryId ? { ...p, categoryName: trimmed } : p
+        )
+      );
+    } catch {
+      setError("Lỗi kết nối.");
+    } finally {
+      setCategorySaving(false);
+    }
+  }
 
   const closeModal = useCallback(() => {
     setModal(null);
@@ -923,6 +1108,7 @@ export function PagesManager({ initialPages, apps }: Props) {
         pageName: p.pageName,
         pageId: p.pageId,
         workspaceAppName: p.workspaceAppName,
+        categoryName: p.categoryName,
         facebookAppId: p.workspaceAppId
           ? appFbId[p.workspaceAppId] ?? null
           : null,
@@ -1027,6 +1213,58 @@ export function PagesManager({ initialPages, apps }: Props) {
         </div>
       </div>
 
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-sm text-gray-600 shrink-0">Danh mục</span>
+        <div className="flex flex-wrap gap-1 bg-gray-100 p-1 rounded-lg">
+          <button
+            type="button"
+            onClick={() => setFilterCategoryId("all")}
+            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+              filterCategoryId === "all"
+                ? "bg-white text-gray-900 shadow-sm"
+                : "text-gray-600 hover:text-gray-900"
+            }`}
+          >
+            Tất cả ({pages.length})
+          </button>
+          <button
+            type="button"
+            onClick={() => setFilterCategoryId("uncategorized")}
+            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+              filterCategoryId === "uncategorized"
+                ? "bg-white text-gray-900 shadow-sm"
+                : "text-gray-600 hover:text-gray-900"
+            }`}
+          >
+            Chưa phân loại ({pages.filter((p) => !p.categoryId).length})
+          </button>
+          {categories.map((c) => (
+            <button
+              key={c.id}
+              type="button"
+              onClick={() => setFilterCategoryId(c.id)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                filterCategoryId === c.id
+                  ? "bg-white text-gray-900 shadow-sm ring-1 ring-gray-200"
+                  : "text-gray-600 hover:text-gray-900"
+              }`}
+            >
+              {c.name} ({c.pageCount ?? pages.filter((p) => p.categoryId === c.id).length})
+            </button>
+          ))}
+        </div>
+        <button
+          type="button"
+          onClick={() => {
+            setModal("categories");
+            setError("");
+          }}
+          className="text-xs font-medium text-blue-700 border border-blue-200 bg-blue-50 hover:bg-blue-100 px-3 py-1.5 rounded-lg"
+        >
+          Quản lý danh mục
+        </button>
+      </div>
+
       <p className="text-xs text-gray-600 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">
         Scope nằm trên <strong>Page token trong DB</strong>, không phải tick Explorer. Đổi
         scope → <strong>OAuth lại</strong> hoặc <strong>Cập nhật token (dán)</strong>, rồi{" "}
@@ -1040,7 +1278,7 @@ export function PagesManager({ initialPages, apps }: Props) {
       )}
 
       {error && !modal && (
-        <div className="bg-red-50 text-red-600 px-4 py-2 rounded-lg text-sm">
+        <div className={ui.alertError}>
           {error}
         </div>
       )}
@@ -1051,11 +1289,20 @@ export function PagesManager({ initialPages, apps }: Props) {
             <thead className="bg-gray-50 text-gray-600 text-left">
               <tr>
                 <th className="px-4 py-3 font-medium">Fanpage</th>
+                <th className="px-4 py-3 font-medium min-w-[130px]">Danh mục</th>
                 <th className="px-4 py-3 font-medium">App</th>
-                <th className="px-4 py-3 font-medium text-center">Đã đăng</th>
-                <th className="px-4 py-3 font-medium text-center">Chờ</th>
-                <th className="px-4 py-3 font-medium whitespace-nowrap">Đã gia hạn</th>
-                <th className="px-4 py-3 font-medium whitespace-nowrap">Hết hạn</th>
+                <th className="px-4 py-3 font-medium text-center min-w-[72px]">
+                  <span className="block">Đã đăng</span>
+                  <span className="block text-xs font-normal text-gray-500 mt-0.5">
+                    Chờ
+                  </span>
+                </th>
+                <th className="px-4 py-3 font-medium min-w-[100px]">
+                  <span className="block whitespace-nowrap">Đã gia hạn</span>
+                  <span className="block text-xs font-normal text-gray-500 mt-0.5 whitespace-nowrap">
+                    Hết hạn
+                  </span>
+                </th>
                 <th className="px-4 py-3 font-medium">Token</th>
                 <th className="px-4 py-3 font-medium min-w-[120px]">Quốc gia</th>
                 <th className="px-4 py-3 font-medium min-w-[140px]">Scopes token</th>
@@ -1065,10 +1312,10 @@ export function PagesManager({ initialPages, apps }: Props) {
             <tbody className="divide-y divide-gray-100">
               {filteredPages.length === 0 ? (
                 <tr>
-                  <td colSpan={10} className="px-4 py-12 text-center text-gray-500">
+                  <td colSpan={9} className="px-4 py-12 text-center text-gray-500">
                     {pages.length === 0
                       ? 'Chưa có Page. Bấm "Kết nối Page" để thêm.'
-                      : "Không có Page khớp bộ lọc App."}
+                      : "Không có Page khớp bộ lọc."}
                   </td>
                 </tr>
               ) : (
@@ -1117,28 +1364,53 @@ export function PagesManager({ initialPages, apps }: Props) {
                           </div>
                         </div>
                       </td>
+                      <td className="px-4 py-3">
+                        <select
+                          value={page.categoryId ?? ""}
+                          disabled={assigningCategoryPageId === page.id}
+                          onChange={(e) => {
+                            const v = e.target.value;
+                            void assignPageCategory(page.id, v ? v : null);
+                          }}
+                          className={`${ui.select} w-full max-w-[140px] text-xs py-1.5 disabled:opacity-50`}
+                        >
+                          <option value="">— Chưa phân loại —</option>
+                          {categories.map((c) => (
+                            <option key={c.id} value={c.id}>
+                              {c.name}
+                            </option>
+                          ))}
+                        </select>
+                      </td>
                       <td className="px-4 py-3 text-gray-700 max-w-[140px] truncate">
                         {page.workspaceAppName ?? (
                           <span className="text-amber-600 text-xs">Chưa gán</span>
                         )}
                       </td>
-                      <td className="px-4 py-3 text-center font-semibold text-green-700">
-                        {page.postedCount}
+                      <td className="px-4 py-3 text-center align-middle">
+                        <div className="font-semibold text-green-700 leading-tight">
+                          {page.postedCount}
+                        </div>
+                        <div className="text-xs font-semibold text-amber-700 leading-tight mt-1">
+                          {page.pendingCount || "—"}
+                        </div>
                       </td>
-                      <td className="px-4 py-3 text-center font-semibold text-amber-700">
-                        {page.pendingCount || "—"}
-                      </td>
-                      <td className="px-4 py-3 text-xs text-gray-700 whitespace-nowrap">
-                        {page.tokenRenewedAt ? (
-                          <span className="text-green-700 font-medium" title={page.tokenRenewedAt}>
-                            {formatDateTime(page.tokenRenewedAt)}
-                          </span>
-                        ) : (
-                          <span className="text-gray-400">Chưa</span>
-                        )}
-                      </td>
-                      <td className="px-4 py-3 text-xs text-gray-600 whitespace-nowrap max-w-[140px]">
-                        {formatExpiry(page.tokenExpiresAt, page.tokenStatus)}
+                      <td className="px-4 py-3 text-xs align-middle max-w-[140px]">
+                        <div className="text-gray-700 whitespace-nowrap leading-tight">
+                          {page.tokenRenewedAt ? (
+                            <span
+                              className="text-green-700 font-medium"
+                              title={page.tokenRenewedAt}
+                            >
+                              {formatDateTime(page.tokenRenewedAt)}
+                            </span>
+                          ) : (
+                            <span className="text-gray-400">Chưa</span>
+                          )}
+                        </div>
+                        <div className="text-gray-600 whitespace-nowrap leading-tight mt-1">
+                          {formatExpiry(page.tokenExpiresAt, page.tokenStatus)}
+                        </div>
                       </td>
                       <td className="px-4 py-3">
                         <span
@@ -1187,10 +1459,80 @@ export function PagesManager({ initialPages, apps }: Props) {
         </div>
       </div>
 
+      {modal === "categories" && (
+        <Modal title="Quản lý danh mục Fanpage" onClose={closeModal}>
+          {error && (
+            <div className={`mb-4 ${ui.alertError}`}>
+              {error}
+            </div>
+          )}
+          <form onSubmit={handleCreateCategory} className="flex gap-2 mb-4">
+            <input
+              value={newCategoryName}
+              onChange={(e) => setNewCategoryName(e.target.value)}
+              placeholder="Tên danh mục mới…"
+              maxLength={80}
+              className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm"
+            />
+            <button
+              type="submit"
+              disabled={categorySaving || !newCategoryName.trim()}
+              className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-50"
+            >
+              Thêm
+            </button>
+          </form>
+          {categories.length === 0 ? (
+            <p className="text-sm text-gray-500 py-4">
+              Chưa có danh mục. Thêm tên ở trên (vd. Thể thao, Tin tức…).
+            </p>
+          ) : (
+            <ul className="divide-y divide-gray-100 border border-gray-200 rounded-lg max-h-64 overflow-y-auto">
+              {categories.map((c) => (
+                <li
+                  key={c.id}
+                  className="flex items-center gap-2 px-3 py-2.5 hover:bg-gray-50/80"
+                >
+                  <span
+                    className={`shrink-0 w-2.5 h-2.5 rounded-full ${categoryAccentBg(c.id, categories)}`}
+                    aria-hidden
+                  />
+                  <input
+                    key={`${c.id}-${c.name}`}
+                    defaultValue={c.name}
+                    onBlur={(e) => {
+                      if (e.target.value.trim() !== c.name) {
+                        void handleRenameCategory(c.id, e.target.value);
+                      }
+                    }}
+                    className="flex-1 min-w-0 text-sm border-0 bg-transparent focus:ring-1 focus:ring-blue-300 rounded px-1 py-0.5"
+                  />
+                  <span className="text-xs text-gray-400 shrink-0">
+                    {c.pageCount ?? pages.filter((p) => p.categoryId === c.id).length} Page
+                  </span>
+                  <button
+                    type="button"
+                    disabled={categorySaving}
+                    onClick={() => void handleDeleteCategory(c.id)}
+                    className="text-xs text-red-600 hover:underline disabled:opacity-50 shrink-0"
+                  >
+                    Xóa
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+          <p className="text-xs text-gray-500 mt-4">
+            Gán danh mục từ cột <strong>Danh mục</strong> trong bảng, hoặc lọc nhanh bằng tab phía
+            trên.
+          </p>
+        </Modal>
+      )}
+
       {modal === "create" && (
         <Modal title="Kết nối Facebook Page" onClose={closeModal}>
           {error && (
-            <div className="bg-red-50 text-red-600 px-3 py-2 rounded-md text-sm mb-4">
+            <div className={`mb-4 ${ui.alertError}`}>
               {error}
             </div>
           )}
@@ -1243,7 +1585,7 @@ export function PagesManager({ initialPages, apps }: Props) {
           onClose={closeModal}
         >
           {error && (
-            <div className="bg-red-50 text-red-600 px-3 py-2 rounded-md text-sm mb-4">
+            <div className={`mb-4 ${ui.alertError}`}>
               {error}
             </div>
           )}
@@ -1377,12 +1719,12 @@ export function PagesManager({ initialPages, apps }: Props) {
             → gỡ giới hạn (Page public lại theo cài đặt Facebook).
           </p>
           {error && (
-            <div className="bg-red-50 text-red-600 px-3 py-2 rounded-md text-sm mb-4">
+            <div className={`mb-4 ${ui.alertError}`}>
               {error}
             </div>
           )}
           {countryHint && (
-            <div className="bg-amber-50 text-amber-900 px-3 py-2 rounded-md text-xs mb-4">
+            <div className={`mb-4 text-xs ${ui.hint}`}>
               {countryHint}
             </div>
           )}

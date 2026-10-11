@@ -3,13 +3,16 @@ import { getAppSession } from "@/lib/app-session";
 import { headers } from "next/headers";
 import { db } from "@/lib/db";
 import { facebookPage } from "@/db/schema/facebook-page";
+import { pageCategory } from "@/db/schema/page-category";
 import { workspaceApp } from "@/db/schema/workspace-app";
+import { listPageCategories } from "@/lib/page-categories";
 import { post } from "@/db/schema/post";
 import { postFacebookPage } from "@/db/schema/post-page";
 import { eq } from "drizzle-orm";
 import { OAuthMessage } from "@/components/oauth-message";
 import { listWorkspaceApps } from "@/lib/workspace-app";
 import { PagesManager, type PageRow } from "@/components/pages-manager";
+import { PageHeader } from "@/components/page-header";
 
 export const metadata: Metadata = {
   title: "Facebook Pages",
@@ -24,7 +27,7 @@ export default async function PagesPage() {
 
   const userId = session!.user.id;
 
-  const [pages, apps, allPosts] = await Promise.all([
+  const [pages, apps, categories, allPosts] = await Promise.all([
     db
       .select({
         id: facebookPage.id,
@@ -36,11 +39,15 @@ export default async function PagesPage() {
         tokenExpiresAt: facebookPage.tokenExpiresAt,
         workspaceAppId: facebookPage.workspaceAppId,
         workspaceAppName: workspaceApp.name,
+        categoryId: facebookPage.categoryId,
+        categoryName: pageCategory.name,
       })
       .from(facebookPage)
       .leftJoin(workspaceApp, eq(facebookPage.workspaceAppId, workspaceApp.id))
+      .leftJoin(pageCategory, eq(facebookPage.categoryId, pageCategory.id))
       .where(eq(facebookPage.userId, userId)),
     listWorkspaceApps(userId),
+    listPageCategories(userId),
     db
       .select({
         facebookPageId: postFacebookPage.facebookPageId,
@@ -81,18 +88,17 @@ export default async function PagesPage() {
   });
 
   return (
-    <div>
-      <div className="mb-6">
-        <h2 className="text-2xl font-bold text-gray-900">Facebook Pages</h2>
-        <p className="text-gray-600 mt-1 text-sm">
-          Quản lý Fanpage, link công khai, gán App và token.
-        </p>
-      </div>
+    <div className="space-y-6">
+      <PageHeader
+        title="Facebook Pages"
+        description="Quản lý Fanpage, danh mục, App và token."
+      />
 
       <OAuthMessage />
 
       <PagesManager
         initialPages={rows}
+        initialCategories={categories}
         apps={apps.map((a) => ({
           id: a.id,
           name: a.name,

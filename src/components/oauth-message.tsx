@@ -2,6 +2,7 @@
 
 import { useSearchParams } from "next/navigation";
 import { Suspense } from "react";
+import { ui } from "@/lib/dashboard-ui";
 
 function OAuthMessageInner() {
   const searchParams = useSearchParams();
@@ -13,12 +14,10 @@ function OAuthMessageInner() {
   return (
     <div className="mb-6">
       {error && (
-        <div className="bg-red-50 text-red-600 px-4 py-3 rounded-md text-sm">
-          ⚠ {error}
-        </div>
+        <div className={ui.alertError}>⚠ {error}</div>
       )}
       {success && (
-        <div className="bg-green-50 text-green-600 px-4 py-3 rounded-md text-sm">
+        <div className={ui.alertSuccess}>
           ✅ {success}
         </div>
       )}

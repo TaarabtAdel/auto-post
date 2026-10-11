@@ -4,48 +4,20 @@ import { join } from "path";
 import { randomBytes } from "crypto";
 import youtubedl from "youtube-dl-exec";
 import { parseDurationSec, probeFile } from "@/lib/reel/ffmpeg";
-
-const YT_HOSTS = new Set([
-  "youtube.com",
-  "www.youtube.com",
-  "m.youtube.com",
-  "music.youtube.com",
-  "youtu.be",
-  "www.youtu.be",
-]);
+import {
+  isYouTubeUrl,
+  normalizeYouTubeUrl,
+  type YouTubeSearchHit,
+} from "@/lib/youtube-url";
 
 export type YouTubeQuality = "best" | "1080" | "720" | "480" | "360";
 
-export function isYouTubeUrl(raw: string): boolean {
-  try {
-    const u = new URL(raw.trim());
-    if (u.protocol !== "https:" && u.protocol !== "http:") return false;
-    return YT_HOSTS.has(u.hostname.toLowerCase());
-  } catch {
-    return false;
-  }
-}
-
-export function normalizeYouTubeUrl(raw: string): string {
-  const u = new URL(raw.trim());
-  const host = u.hostname.toLowerCase();
-  if (host === "youtu.be" || host === "www.youtu.be") {
-    const id = u.pathname.replace(/^\//, "").split("/")[0];
-    if (!id) throw new Error("Link YouTube không hợp lệ.");
-    return `https://www.youtube.com/watch?v=${id}`;
-  }
-  const shorts = u.pathname.match(/^\/shorts\/([a-zA-Z0-9_-]+)/);
-  if (shorts) return `https://www.youtube.com/watch?v=${shorts[1]}`;
-  const embed = u.pathname.match(/^\/embed\/([a-zA-Z0-9_-]+)/);
-  if (embed) return `https://www.youtube.com/watch?v=${embed[1]}`;
-  const live = u.pathname.match(/^\/live\/([a-zA-Z0-9_-]+)/);
-  if (live) return `https://www.youtube.com/watch?v=${live[1]}`;
-  const v = u.searchParams.get("v");
-  if (v) return `https://www.youtube.com/watch?v=${v}`;
-  throw new Error(
-    "Chỉ hỗ trợ link 1 video (watch / shorts / youtu.be), không tải cả playlist."
-  );
-}
+export {
+  isYouTubeUrl,
+  normalizeYouTubeUrl,
+  parseYouTubeUrlsFromText,
+  type YouTubeSearchHit,
+} from "@/lib/youtube-url";
 
 export interface YouTubeFormatOption {
   id: string;
@@ -107,14 +79,6 @@ function mapError(err: unknown): Error {
     return new Error("Video riêng tư / giới hạn tuổi — không tải được.");
   }
   return new Error("Không lấy được video YouTube. Kiểm tra link hoặc thử lại.");
-}
-
-export interface YouTubeSearchHit {
-  id: string;
-  title: string;
-  channel: string;
-  durationSec: number;
-  url: string;
 }
 
 export async function searchYouTubeVideos(opts: {
@@ -281,6 +245,29 @@ export async function downloadYouTubeVideo(
     title: fileName,
     durationSec,
   };
+}
+
+/** Thử quality yêu cầu rồi fallback 720 / 480 / best nếu yt-dlp lỗi format. */
+export async function downloadYouTubeVideoWithFallback(
+  rawUrl: string,
+  destDir: string,
+  quality: YouTubeQuality = "best"
+): Promise<YouTubeDownloadResult> {
+  const order: YouTubeQuality[] =
+    quality === "best"
+      ? ["best", "720", "480"]
+      : [quality, "720", "480", "best"];
+  const tries = [...new Set(order)];
+
+  let lastErr: Error | undefined;
+  for (const q of tries) {
+    try {
+      return await downloadYouTubeVideo(rawUrl, destDir, q);
+    } catch (err) {
+      lastErr = err instanceof Error ? err : new Error(String(err));
+    }
+  }
+  throw lastErr ?? new Error("Không tải được video YouTube.");
 }
 
 export async function listYouTubeDownloads(userDir: string): Promise<

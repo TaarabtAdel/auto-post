@@ -6,7 +6,7 @@ import { mkdir } from "fs/promises";
 import { youtubeLimiter, checkRateLimit } from "@/lib/rate-limit";
 import { uploadMediaPublicUrl } from "@/lib/upload-media-url";
 import {
-  downloadYouTubeVideo,
+  downloadYouTubeVideoWithFallback,
   getYouTubeInfo,
   isYouTubeUrl,
   listYouTubeDownloads,
@@ -15,7 +15,7 @@ import {
 } from "@/lib/youtube";
 
 export const runtime = "nodejs";
-export const maxDuration = 180;
+export const maxDuration = 600;
 
 const QUALITIES = new Set<YouTubeQuality>(["best", "1080", "720", "480", "360"]);
 
@@ -101,11 +101,19 @@ export async function POST(request: NextRequest) {
 
     const userDir = join(process.cwd(), "uploads", user.id);
     await mkdir(userDir, { recursive: true });
-    const downloaded = await downloadYouTubeVideo(url, userDir, quality);
+    const downloaded = await downloadYouTubeVideoWithFallback(url, userDir, quality);
     const rel = relative(join(process.cwd(), "uploads"), downloaded.filePath).replace(
       /\\/g,
       "/"
     );
+
+    let displayTitle = downloaded.title;
+    try {
+      const info = await getYouTubeInfo(url);
+      if (info.title) displayTitle = info.title;
+    } catch {
+      // giữ tên file nếu không lấy metadata
+    }
 
     return NextResponse.json({
       filePath: rel,
@@ -115,7 +123,7 @@ export async function POST(request: NextRequest) {
       fileType: "video",
       url: uploadMediaPublicUrl(rel),
       durationSec: downloaded.durationSec,
-      title: downloaded.title,
+      title: displayTitle,
     });
   } catch (error) {
     const message =

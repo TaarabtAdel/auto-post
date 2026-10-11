@@ -11,6 +11,7 @@ import { getFacebookPostUrl } from "@/lib/facebook-page-url";
 import { notFound } from "next/navigation";
 import { listWorkspaceApps } from "@/lib/workspace-app";
 import { PostEditForm } from "@/components/post-edit-form";
+import { PageHeader } from "@/components/page-header";
 import { uploadMediaPublicUrl } from "@/lib/upload-media-url";
 
 type Props = { params: Promise<{ id: string }> };
@@ -56,13 +57,11 @@ export default async function EditPostPage({ params }: Props) {
   );
 
   return (
-    <div>
-      <div className="mb-6">
-        <h2 className="text-2xl font-bold text-gray-900">Sửa bài viết</h2>
-        <p className="text-sm text-gray-500 mt-1">
-          Đổi Page, nội dung, giờ đăng — hoặc copy sang Fanpage khác.
-        </p>
-      </div>
+    <div className="space-y-6">
+      <PageHeader
+        title="Sửa bài viết"
+        description="Chọn Fanpage, media, hẹn giờ — một bài có thể đăng nhiều Page."
+      />
       <PostEditForm
         post={{
           id: p.id,

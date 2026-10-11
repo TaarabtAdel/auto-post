@@ -4,6 +4,8 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { describeDeleteImpact } from "@/lib/post-delete-impact";
+import { PageCategorySelectBar } from "@/components/page-category-select-bar";
+import { ui } from "@/lib/dashboard-ui";
 
 interface MediaItem {
   id: string;
@@ -49,6 +51,8 @@ interface PageOption {
   pageAvatar: string | null;
   tokenStatus: string;
   workspaceAppId: string | null;
+  categoryId: string | null;
+  categoryName: string | null;
 }
 
 interface EditableMedia {
@@ -135,11 +139,32 @@ export function PostEditForm({ post, apps, batchSiblings }: Props) {
   }, []);
 
   useEffect(() => {
-    if (!facebookPageId || allPages.length === 0) return;
-    const page = allPages.find((p) => p.id === facebookPageId);
-    if (page?.workspaceAppId) setWorkspaceAppId(page.workspaceAppId);
-    else if (apps[0]) setWorkspaceAppId(apps[0].id);
-  }, [facebookPageId, allPages, apps]);
+    if (apps.length === 0) return;
+    setWorkspaceAppId((current) => {
+      if (current) return current;
+
+      const linkedIds =
+        post.facebookPageIds.length > 0
+          ? post.facebookPageIds
+          : post.facebookPageId
+            ? [post.facebookPageId]
+            : facebookPageId
+              ? [facebookPageId]
+              : [];
+
+      if (linkedIds.length > 0 && allPages.length > 0) {
+        const linked = allPages.find((p) => linkedIds.includes(p.id));
+        if (linked?.workspaceAppId) return linked.workspaceAppId;
+      }
+
+      if (facebookPageId && allPages.length > 0) {
+        const page = allPages.find((p) => p.id === facebookPageId);
+        if (page?.workspaceAppId) return page.workspaceAppId;
+      }
+
+      return apps[0].id;
+    });
+  }, [apps, allPages, facebookPageId, post.facebookPageIds, post.facebookPageId]);
 
   const appPages = useMemo(
     () =>
@@ -150,7 +175,19 @@ export function PostEditForm({ post, apps, batchSiblings }: Props) {
     [allPages, workspaceAppId]
   );
 
-  const otherPages = appPages.filter((p) => p.id !== facebookPageId);
+  const postPageIdSet = useMemo(
+    () =>
+      new Set(
+        post.facebookPageIds.length > 0
+          ? post.facebookPageIds
+          : post.facebookPageId
+            ? [post.facebookPageId]
+            : []
+      ),
+    [post.facebookPageIds, post.facebookPageId]
+  );
+
+  const otherPages = appPages.filter((p) => !postPageIdSet.has(p.id));
   const canCloneToMore = otherPages.length > 0 && isPosted;
 
   const allPagesSelected =
@@ -178,6 +215,17 @@ export function PostEditForm({ post, apps, batchSiblings }: Props) {
     } else {
       setSelectedPageIds(new Set(appPages.map((p) => p.id)));
     }
+  }
+
+  function invertSelectedPages() {
+    setSelectedPageIds((prev) => {
+      const next = new Set<string>();
+      for (const p of appPages) {
+        if (!prev.has(p.id)) next.add(p.id);
+      }
+      if (next.size === 0 && appPages[0]) next.add(appPages[0].id);
+      return next;
+    });
   }
 
   async function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
@@ -431,20 +479,20 @@ export function PostEditForm({ post, apps, batchSiblings }: Props) {
       )}
 
       {error && (
-        <div className="bg-red-50 text-red-600 px-4 py-3 rounded-lg text-sm">{error}</div>
+        <div className={ui.alertError}>{error}</div>
       )}
       {success && (
-        <div className="bg-green-50 text-green-700 px-4 py-3 rounded-lg text-sm">{success}</div>
+        <div className={ui.alertSuccess}>{success}</div>
       )}
 
-      <div className="bg-white border border-gray-200 rounded-xl p-6 space-y-4">
+      <div className={`${ui.card} ${ui.cardPad} space-y-4`}>
         <p className="text-sm text-gray-500">
           Trạng thái: <strong>{STATUS_LABEL[post.status] ?? post.status}</strong>
           {post.pageName ? ` · Fanpage: ${post.pageName}` : null}
         </p>
 
         {editable && (
-          <p className="text-xs text-blue-800 bg-blue-50 px-3 py-2 rounded-md">
+          <p className={`text-xs text-blue-800 ${ui.hint}`}>
             Chọn tất cả Fanpage cần đăng — vẫn là <strong>một</strong> bài trong danh sách
             /posts.
           </p>
@@ -494,6 +542,26 @@ export function PostEditForm({ post, apps, batchSiblings }: Props) {
               </p>
             ) : (
               <>
+                <div className="flex flex-wrap gap-2 mb-2">
+                  <button
+                    type="button"
+                    onClick={invertSelectedPages}
+                    disabled={appPages.length === 0}
+                    className={`${ui.btnSm} disabled:opacity-50`}
+                  >
+                    Đảo ngược
+                  </button>
+                  <span className="text-xs text-gray-500 self-center">
+                    {selectedPageIds.size}/{appPages.length} Fanpage
+                  </span>
+                </div>
+                <PageCategorySelectBar
+                  pages={appPages}
+                  selected={selectedPageIds}
+                  onSelectedChange={setSelectedPageIds}
+                  minOne
+                  disabled={loading}
+                />
                 <div className="border border-gray-100 rounded-lg divide-y divide-gray-100 max-w-xl">
                   <label className="flex items-center gap-3 px-4 py-3 bg-gray-50 cursor-pointer">
                     <input
@@ -532,7 +600,14 @@ export function PostEditForm({ post, apps, batchSiblings }: Props) {
                           {p.pageName.charAt(0)}
                         </div>
                       )}
-                      <span className="text-sm text-gray-900">{p.pageName}</span>
+                      <span className="text-sm text-gray-900 flex-1 min-w-0">
+                        {p.pageName}
+                        {p.categoryName ? (
+                          <span className="block text-[10px] text-gray-400 truncate">
+                            {p.categoryName}
+                          </span>
+                        ) : null}
+                      </span>
                     </label>
                   ))}
                 </div>
@@ -654,12 +729,12 @@ export function PostEditForm({ post, apps, batchSiblings }: Props) {
               Dùng nội dung đang hiển thị (bài đã đăng) làm mẫu cho lần hẹn mới.
             </p>
           )}
-          <div className="flex flex-wrap gap-2 mb-3">
+          <div className="flex flex-wrap gap-2 mb-2">
             <button
               type="button"
               onClick={selectAllExtraPages}
               disabled={otherPages.length === 0 || loading}
-              className="text-xs font-medium text-blue-700 border border-blue-200 bg-blue-50 hover:bg-blue-100 px-3 py-1.5 rounded-md disabled:opacity-50"
+              className={`${ui.btnSm} text-blue-700 border-blue-200 bg-blue-50 hover:bg-blue-100 disabled:opacity-50`}
             >
               Chọn tất cả
             </button>
@@ -667,7 +742,7 @@ export function PostEditForm({ post, apps, batchSiblings }: Props) {
               type="button"
               onClick={invertExtraPages}
               disabled={otherPages.length === 0 || loading}
-              className="text-xs font-medium text-gray-700 border border-gray-200 bg-gray-50 hover:bg-gray-100 px-3 py-1.5 rounded-md disabled:opacity-50"
+              className={`${ui.btnSm} disabled:opacity-50`}
             >
               Đảo ngược
             </button>
@@ -675,6 +750,12 @@ export function PostEditForm({ post, apps, batchSiblings }: Props) {
               {extraPageIds.size}/{otherPages.length} Fanpage
             </span>
           </div>
+          <PageCategorySelectBar
+            pages={otherPages}
+            selected={extraPageIds}
+            onSelectedChange={setExtraPageIds}
+            disabled={loading}
+          />
           <ul className="space-y-2 mb-4">
             {otherPages.map((p) => (
               <label key={p.id} className="flex items-center gap-2 text-sm">
@@ -684,7 +765,12 @@ export function PostEditForm({ post, apps, batchSiblings }: Props) {
                   onChange={() => toggleExtra(p.id)}
                   className="rounded border-gray-300"
                 />
-                {p.pageName}
+                <span>
+                  {p.pageName}
+                  {p.categoryName ? (
+                    <span className="text-xs text-gray-400 ml-1">· {p.categoryName}</span>
+                  ) : null}
+                </span>
               </label>
             ))}
           </ul>

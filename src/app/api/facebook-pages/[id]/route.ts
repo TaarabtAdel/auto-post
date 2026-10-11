@@ -3,6 +3,7 @@ import { getAppSession } from "@/lib/app-session";
 import { headers } from "next/headers";
 import { db } from "@/lib/db";
 import { facebookPage } from "@/db/schema/facebook-page";
+import { pageCategory } from "@/db/schema/page-category";
 import { eq, and } from "drizzle-orm";
 import { verifyPageToken } from "@/lib/facebook";
 import { decryptPageToken, encrypt } from "@/lib/crypto";
@@ -102,7 +103,11 @@ export async function PATCH(request: NextRequest, { params }: Params) {
     return NextResponse.json({ error: "Page không tồn tại." }, { status: 404 });
   }
 
-  let body: { accessToken?: string; workspaceAppId?: string };
+  let body: {
+    accessToken?: string;
+    workspaceAppId?: string;
+    categoryId?: string | null;
+  };
   try {
     body = await request.json();
   } catch {
@@ -156,6 +161,29 @@ export async function PATCH(request: NextRequest, { params }: Params) {
     updates.tokenStatus = "active";
   }
 
+  if (body.categoryId !== undefined) {
+    if (body.categoryId === null || body.categoryId === "") {
+      updates.categoryId = null;
+    } else {
+      const cat = await db
+        .select({ id: pageCategory.id })
+        .from(pageCategory)
+        .where(
+          and(
+            eq(pageCategory.id, body.categoryId),
+            eq(pageCategory.userId, session.user.id)
+          )
+        );
+      if (cat.length === 0) {
+        return NextResponse.json(
+          { error: "Danh mục không tồn tại." },
+          { status: 400 }
+        );
+      }
+      updates.categoryId = body.categoryId;
+    }
+  }
+
   if (Object.keys(updates).length === 0) {
     return NextResponse.json({ error: "Không có thay đổi." }, { status: 400 });
   }
@@ -175,6 +203,7 @@ export async function PATCH(request: NextRequest, { params }: Params) {
       pageAvatar: facebookPage.pageAvatar,
       tokenStatus: facebookPage.tokenStatus,
       workspaceAppId: facebookPage.workspaceAppId,
+      categoryId: facebookPage.categoryId,
     })
     .from(facebookPage)
     .where(eq(facebookPage.id, id));

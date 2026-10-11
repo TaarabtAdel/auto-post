@@ -14,7 +14,7 @@ export default async function DashboardLayout({
 
       {/* Main content — offset by sidebar width on desktop */}
       <main className="lg:ml-64 pt-14 lg:pt-0">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <div className="max-w-6xl mx-auto p-0">
           {children}
         </div>
       </main>
