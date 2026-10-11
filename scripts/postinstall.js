@@ -56,7 +56,14 @@ const r = spawnSync(process.execPath, [ytdlpPost], {
 
 if (r.status !== 0) {
   console.warn("[postinstall] youtube-dl-exec postinstall exited", r.status);
-  process.exit(r.status ?? 1);
+  console.warn(
+    "[postinstall] Không tải được yt-dlp (mạng/GitHub). App vẫn cài xong; YouTube cần yt-dlp system hoặc chạy lại: npm run postinstall"
+  );
+  if (process.env.YOUTUBE_DL_SKIP_DOWNLOAD === "1") {
+    process.exit(0);
+  }
+  // Không chặn npm ci / Docker build — Facebook post vẫn chạy được.
+  process.exit(0);
 }
 
 console.log("[postinstall] xong (ffmpeg + yt-dlp).");
