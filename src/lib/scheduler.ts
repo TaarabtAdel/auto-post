@@ -5,6 +5,7 @@ import {
   drainPublishQueue,
 } from "@/lib/publish-queue-processor";
 import { cronLog } from "@/lib/cron-log";
+import { APP_TIMEZONE, appTzNowLabel } from "@/lib/scheduled-at";
 
 let cronTask: ScheduledTask | null = null;
 let started = false;
@@ -43,6 +44,9 @@ export function startScheduler() {
     engine: "node-cron",
     expression: CRON_EXPR,
     meaning: "mỗi phút (giây 0)",
+    appTimezone: APP_TIMEZONE,
+    now: appTzNowLabel(),
+    processTz: process.env.TZ ?? "(unset)",
     pid: process.pid,
     nodeEnv: process.env.NODE_ENV,
   });

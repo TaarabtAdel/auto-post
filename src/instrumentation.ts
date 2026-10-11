@@ -1,8 +1,10 @@
+import { appTzNowLabel } from "@/lib/scheduled-at";
+
 export async function register() {
   if (process.env.NEXT_RUNTIME === "nodejs") {
     console.log(
       "[cron]",
-      new Date().toISOString(),
+      appTzNowLabel(),
       "instrumentation.register() — NEXT_RUNTIME=nodejs"
     );
 
@@ -25,7 +27,7 @@ export async function register() {
   } else {
     console.log(
       "[cron]",
-      new Date().toISOString(),
+      appTzNowLabel(),
       "instrumentation bỏ qua scheduler — runtime:",
       process.env.NEXT_RUNTIME
     );

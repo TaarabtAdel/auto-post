@@ -91,6 +91,11 @@ export function nextAppTzDatetimeLocal(hour: number): string {
   return candidate;
 }
 
+/** Nhãn giờ app (log cron, debug) — khớp đồng hồ VN. */
+export function appTzNowLabel(date: Date = new Date()): string {
+  return formatInAppTimezone(date.toISOString(), true);
+}
+
 /** Hiển thị ngày giờ trên UI / SSR (VPS UTC vẫn đúng). */
 export function formatInAppTimezone(
   dateStr: string | null | undefined,
