@@ -123,10 +123,10 @@ export function AutoPlansList() {
 
   return (
     <div className={ui.tableShell}>
-      <table className="w-full">
+      <table className="w-full table-fixed">
         <thead className={ui.tableHead}>
           <tr>
-            <th className={ui.th}>Tên plan</th>
+            <th className={`${ui.th} w-[11rem] sm:w-[14rem]`}>Tên plan</th>
             <th className={ui.th}>Chế độ</th>
             <th className={ui.th}>Trạng thái</th>
             <th className={ui.th}>Bước</th>
@@ -138,10 +138,18 @@ export function AutoPlansList() {
         <tbody className="divide-y divide-gray-100">
           {campaigns.map((c) => (
             <tr key={c.id} className="hover:bg-gray-50/80">
-              <td className={ui.td}>
-                <span className="font-medium text-gray-900">{c.name || "Campaign"}</span>
+              <td className={`${ui.td} max-w-[11rem] sm:max-w-[14rem]`}>
+                <span
+                  className="block font-medium text-gray-900 truncate"
+                  title={c.name || "Campaign"}
+                >
+                  {c.name || "Campaign"}
+                </span>
                 {c.youtubeTitle ? (
-                  <p className="text-xs text-gray-500 mt-0.5 truncate max-w-xs">
+                  <p
+                    className="text-xs text-gray-500 mt-0.5 truncate"
+                    title={c.youtubeTitle}
+                  >
                     {c.youtubeTitle}
                   </p>
                 ) : null}
