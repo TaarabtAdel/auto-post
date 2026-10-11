@@ -8,6 +8,7 @@ import { ui } from "@/lib/dashboard-ui";
 import { MediaThumbList } from "@/components/media-thumb-list";
 import { FileDropHint, FileDropZone } from "@/components/file-drop-zone";
 import { POST_MEDIA_ACCEPT, uploadMediaFiles } from "@/lib/upload-client";
+import { datetimeLocalInAppTzToIso } from "@/lib/scheduled-at";
 
 interface MediaFile {
   filePath: string;
@@ -339,7 +340,7 @@ export default function NewPostPage() {
       setError("Vui lòng chọn thời gian đăng.");
       return;
     }
-    await submitToQueue(new Date(scheduledAt).toISOString());
+    await submitToQueue(datetimeLocalInAppTzToIso(scheduledAt));
   }
 
   async function handlePostNow() {

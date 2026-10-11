@@ -13,6 +13,8 @@ import {
   uploadMediaFiles,
 } from "@/lib/upload-client";
 import {
+  datetimeLocalInAppTzToIso,
+  nextAppTzDatetimeLocal,
   scheduledAtToDatetimeLocal,
   scheduledAtToIso,
 } from "@/lib/scheduled-at";
@@ -101,18 +103,6 @@ const STATUS_LABEL: Record<string, string> = {
 
 /** Khung giờ đăng nhanh (giờ máy / VN). */
 const QUICK_SCHEDULE_HOURS = [18, 20, 22, 4, 6, 9] as const;
-
-function localDatetimeAtNextHour(hour: number): string {
-  const now = new Date();
-  const d = new Date(now);
-  d.setSeconds(0, 0);
-  d.setMinutes(0, 0);
-  d.setHours(hour, 0, 0, 0);
-  if (d.getTime() <= now.getTime()) {
-    d.setDate(d.getDate() + 1);
-  }
-  return scheduledAtToDatetimeLocal(d.toISOString());
-}
 
 export function PostEditForm({ post, apps, batchSiblings }: Props) {
   const router = useRouter();
@@ -329,7 +319,7 @@ export function PostEditForm({ post, apps, batchSiblings }: Props) {
         media: media.map(mediaToPayload),
       };
       payload.scheduledAt = scheduledAt
-        ? new Date(scheduledAt).toISOString()
+        ? datetimeLocalInAppTzToIso(scheduledAt)
         : null;
 
       const res = await fetch(`/api/posts/${post.id}`, {
@@ -370,7 +360,7 @@ export function PostEditForm({ post, apps, batchSiblings }: Props) {
         body: JSON.stringify({
           content: content.trim(),
           firstComment: firstComment.trim() || undefined,
-          scheduledAt: new Date(scheduledAt).toISOString(),
+          scheduledAt: datetimeLocalInAppTzToIso(scheduledAt),
           facebookPageIds: [...extraPageIds],
           media: media.map(mediaToPayload),
         }),
@@ -668,7 +658,7 @@ export function PostEditForm({ post, apps, batchSiblings }: Props) {
               onChange={(e) => {
                 const hour = Number(e.target.value);
                 if (!Number.isNaN(hour)) {
-                  setScheduledAt(localDatetimeAtNextHour(hour));
+                  setScheduledAt(nextAppTzDatetimeLocal(hour));
                 }
                 e.target.value = "";
               }}
@@ -826,7 +816,7 @@ export function PostEditForm({ post, apps, batchSiblings }: Props) {
                       facebookPageIds: [...selectedPageIds],
                       media: media.map(mediaToPayload),
                       ...(scheduledAt
-                        ? { scheduledAt: new Date(scheduledAt).toISOString() }
+                        ? { scheduledAt: datetimeLocalInAppTzToIso(scheduledAt) }
                         : {}),
                     }),
                   });
