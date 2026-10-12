@@ -57,6 +57,12 @@ export async function publishPostById(
   }
 
   const fbPage = pages[0];
+  if (fbPage.tokenStatus === "pending") {
+    return {
+      success: false,
+      error: "Page chưa có token — vào /pages, menu Page → Cập nhật token.",
+    };
+  }
   if (fbPage.tokenStatus !== "active") {
     return { success: false, error: "Token đã hết hạn." };
   }

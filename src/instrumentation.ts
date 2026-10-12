@@ -28,6 +28,9 @@ export async function register() {
     const { migrateSystemLogSchema } = await import("@/lib/system-log-schema");
     migrateSystemLogSchema();
 
+    const { migratePublishSettingsSchema } = await import("@/lib/publish-settings");
+    migratePublishSettingsSchema();
+
     const { ensureUploadBucketRoots } = await import("@/lib/upload-storage");
     await ensureUploadBucketRoots();
 

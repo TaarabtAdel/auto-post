@@ -17,6 +17,8 @@ export const postFacebookPage = sqliteTable(
     sortOrder: integer("sort_order").notNull().default(0),
     fbPostId: text("fb_post_id"),
     errorMessage: text("error_message"),
+    /** Đánh dấu đã đăng tay trên Facebook (không qua API). */
+    manualPosted: integer("manual_posted").notNull().default(0),
     publishedAt: integer("published_at", { mode: "timestamp_ms" }),
     createdAt: integer("created_at", { mode: "timestamp_ms" })
       .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)

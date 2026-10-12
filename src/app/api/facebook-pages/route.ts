@@ -73,26 +73,75 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const { accessToken, workspaceAppId } = body;
+  const { accessToken } = body;
   const manualPageId = body.pageId?.trim() ?? "";
   const manualPageName = body.pageName?.trim() ?? "";
+  const workspaceAppIdRaw = body.workspaceAppId?.trim() ?? "";
 
-  if (!workspaceAppId?.trim()) {
-    return NextResponse.json(
-      { error: "Chọn App (workspaceAppId) trước khi kết nối Page." },
-      { status: 400 }
-    );
+  let workspaceAppIdToSave: string | null = null;
+  if (workspaceAppIdRaw !== "") {
+    const wsApp = await getWorkspaceAppForUser(workspaceAppIdRaw, session.user.id);
+    if (!wsApp) {
+      return NextResponse.json({ error: "App không hợp lệ." }, { status: 404 });
+    }
+    workspaceAppIdToSave = wsApp.id;
   }
+  const tokenRaw =
+    accessToken && typeof accessToken === "string" ? accessToken.trim() : "";
 
-  const wsApp = await getWorkspaceAppForUser(workspaceAppId.trim(), session.user.id);
-  if (!wsApp) {
-    return NextResponse.json({ error: "App không hợp lệ." }, { status: 404 });
-  }
-  if (!accessToken || typeof accessToken !== "string" || accessToken.trim().length === 0) {
-    return NextResponse.json(
-      { error: "Access token là bắt buộc." },
-      { status: 400 }
-    );
+  /** Chỉ đăng ký tên + ID — token bổ sung sau (Cập nhật token). */
+  if (tokenRaw === "") {
+    if (manualPageId === "" || manualPageName === "") {
+      return NextResponse.json(
+        { error: "Nhập Tên Fanpage và ID Fanpage." },
+        { status: 400 }
+      );
+    }
+    const pageId = normalizeFacebookPageId(manualPageId);
+    if (!/^\d+$/.test(pageId)) {
+      return NextResponse.json(
+        { error: "ID Fanpage phải là số." },
+        { status: 400 }
+      );
+    }
+
+    const existingManual = await db
+      .select({ id: facebookPage.id })
+      .from(facebookPage)
+      .where(
+        and(
+          eq(facebookPage.userId, session.user.id),
+          eq(facebookPage.pageId, pageId)
+        )
+      );
+    if (existingManual.length > 0) {
+      return NextResponse.json(
+        { error: `Page ID ${pageId} đã có trong danh sách.` },
+        { status: 409 }
+      );
+    }
+
+    const id = randomBytes(16).toString("hex");
+    await db.insert(facebookPage).values({
+      id,
+      userId: session.user.id,
+      workspaceAppId: workspaceAppIdToSave,
+      pageId,
+      pageName: manualPageName,
+      pageAvatar: null,
+      encryptedToken: encrypt(""),
+      tokenStatus: "pending",
+    });
+
+    return NextResponse.json({
+      page: {
+        id,
+        pageId,
+        pageName: manualPageName,
+        pageAvatar: null,
+        tokenStatus: "pending",
+      },
+    });
   }
 
   if (manualPageId !== "" || manualPageName !== "") {
@@ -110,7 +159,7 @@ export async function POST(request: NextRequest) {
     if (manualPageId !== "" && manualPageName !== "") {
       const verified = await verifyPageAccessTokenForPage(
         manualPageId,
-        accessToken.trim()
+        tokenRaw
       );
       const expectedId = normalizeFacebookPageId(manualPageId);
       if (verified.pageId !== expectedId) {
@@ -126,7 +175,7 @@ export async function POST(request: NextRequest) {
         pageName: manualPageName,
       };
     } else {
-      pageInfo = await verifyPageToken(accessToken.trim());
+      pageInfo = await verifyPageToken(tokenRaw);
     }
   } catch (error) {
     const message =
@@ -153,13 +202,13 @@ export async function POST(request: NextRequest) {
   }
 
   // Encrypt token and save
-  const encryptedToken = encrypt(accessToken.trim());
+  const encryptedToken = encrypt(tokenRaw);
   const id = randomBytes(16).toString("hex");
 
   await db.insert(facebookPage).values({
     id,
     userId: session.user.id,
-    workspaceAppId: wsApp.id,
+    workspaceAppId: workspaceAppIdToSave,
     pageId: pageInfo.pageId,
     pageName: pageInfo.pageName,
     pageAvatar: pageInfo.pageAvatar,

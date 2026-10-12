@@ -5,7 +5,7 @@ import { db } from "@/lib/db";
 import { facebookPage } from "@/db/schema/facebook-page";
 import { pageCategory } from "@/db/schema/page-category";
 import { eq, and } from "drizzle-orm";
-import { verifyPageToken } from "@/lib/facebook";
+import { verifyPageAccessTokenForPage, verifyPageToken } from "@/lib/facebook";
 import { decryptPageToken, encrypt } from "@/lib/crypto";
 import { getWorkspaceAppForUser } from "@/lib/workspace-app";
 
@@ -141,11 +141,18 @@ export async function PATCH(request: NextRequest, { params }: Params) {
 
     let pageInfo;
     try {
-      pageInfo = await verifyPageToken(accessToken.trim());
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "Không thể verify token.";
-      return NextResponse.json({ error: message }, { status: 400 });
+      pageInfo = await verifyPageAccessTokenForPage(
+        existing[0].pageId,
+        accessToken.trim()
+      );
+    } catch {
+      try {
+        pageInfo = await verifyPageToken(accessToken.trim());
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : "Không thể verify token.";
+        return NextResponse.json({ error: message }, { status: 400 });
+      }
     }
 
     if (pageInfo.pageId !== existing[0].pageId) {

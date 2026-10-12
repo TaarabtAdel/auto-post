@@ -23,6 +23,7 @@ export type PostPageDisplay = {
   graphPageId: string | null;
   fbPostId: string | null;
   errorMessage: string | null;
+  manualPosted: boolean;
 };
 
 /** Tạo bảng / cột (SQLite) — idempotent khi khởi động app. */
@@ -51,6 +52,15 @@ export function migratePostPagesSchema() {
     sqlite.exec(`
       ALTER TABLE publish_queue ADD COLUMN facebook_page_id TEXT REFERENCES facebook_page(id);
     `);
+  }
+
+  const pfCols = sqlite
+    .prepare(`PRAGMA table_info(post_facebook_page)`)
+    .all() as { name: string }[];
+  if (!pfCols.some((c) => c.name === "manual_posted")) {
+    sqlite.exec(
+      `ALTER TABLE post_facebook_page ADD COLUMN manual_posted INTEGER NOT NULL DEFAULT 0;`
+    );
   }
 
   const postCols = sqlite
@@ -187,6 +197,7 @@ export async function loadPostPagesDisplay(
       sortOrder: postFacebookPage.sortOrder,
       fbPostId: postFacebookPage.fbPostId,
       errorMessage: postFacebookPage.errorMessage,
+      manualPosted: postFacebookPage.manualPosted,
       pageName: facebookPage.pageName,
       graphPageId: facebookPage.pageId,
     })
@@ -208,6 +219,7 @@ export async function loadPostPagesDisplay(
       graphPageId: row.graphPageId,
       fbPostId: row.fbPostId,
       errorMessage: row.errorMessage,
+      manualPosted: Boolean(row.manualPosted),
     });
     map.set(row.postId, list);
   }
@@ -251,6 +263,7 @@ export async function loadPostPagesDisplay(
             graphPageId: fp.pageId,
             fbPostId: p.fbPostId,
             errorMessage: null,
+            manualPosted: false,
           },
         ]);
       }
@@ -305,6 +318,7 @@ export async function refreshPostAggregateStatus(postId: string) {
     .select({
       fbPostId: postFacebookPage.fbPostId,
       errorMessage: postFacebookPage.errorMessage,
+      manualPosted: postFacebookPage.manualPosted,
     })
     .from(postFacebookPage)
     .where(eq(postFacebookPage.postId, postId));
@@ -314,10 +328,13 @@ export async function refreshPostAggregateStatus(postId: string) {
     .from(publishQueue)
     .where(eq(publishQueue.postId, postId));
 
+  const isPageDone = (j: {
+    fbPostId: string | null;
+    manualPosted: number | null;
+  }) => Boolean(j.fbPostId) || Boolean(j.manualPosted);
+
   const publishedCount =
-    junction.length > 0
-      ? junction.filter((j) => j.fbPostId).length
-      : 0;
+    junction.length > 0 ? junction.filter(isPageDone).length : 0;
   const total = pageIds.length;
 
   const hasPending = jobs.some(

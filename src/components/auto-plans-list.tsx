@@ -197,6 +197,14 @@ export function AutoPlansList() {
                       {runningId === c.id ? "Đang chạy…" : "Run now"}
                     </button>
                   )}
+                  {c.postIds.some(Boolean) &&
+                  ["scheduled", "completed", "posts_created", "rendered"].includes(
+                    c.status
+                  ) ? (
+                    <Link href="/posts" className={ui.btnSm}>
+                      Bài trên /posts
+                    </Link>
+                  ) : null}
                   <Link href={`/auto?id=${c.id}`} className={ui.btnSm}>
                     Cập nhật
                   </Link>

@@ -12,6 +12,8 @@ import { PageHeader } from "@/components/page-header";
 import { ui } from "@/lib/dashboard-ui";
 import { drainPublishQueue } from "@/lib/publish-queue-processor";
 import { loadPostPagesDisplay } from "@/lib/post-pages";
+import { uploadMediaPublicUrl } from "@/lib/upload-media-url";
+import { getPublishPageIntervalMinutes } from "@/lib/publish-settings";
 
 export const metadata: Metadata = {
   title: "Bài viết",
@@ -30,6 +32,7 @@ export default async function PostsPage() {
     .select({
       id: post.id,
       content: post.content,
+      firstComment: post.firstComment,
       status: post.status,
       facebookPageId: post.facebookPageId,
       scheduledAt: post.scheduledAt,
@@ -48,6 +51,7 @@ export default async function PostsPage() {
     postId: string;
     fileType: string;
     fileName: string;
+    filePath: string;
     sortOrder: number;
   }[] = [];
   if (postIds.length > 0) {
@@ -56,6 +60,7 @@ export default async function PostsPage() {
         postId: postMedia.postId,
         fileType: postMedia.fileType,
         fileName: postMedia.fileName,
+        filePath: postMedia.filePath,
         sortOrder: postMedia.sortOrder,
       })
       .from(postMedia)
@@ -97,6 +102,7 @@ export default async function PostsPage() {
     const postMediaItems = mediaList
       .filter((m) => m.postId === p.id)
       .sort((a, b) => a.sortOrder - b.sortOrder);
+    const firstVideo = postMediaItems.find((m) => m.fileType === "video");
     const postPages = pagesByPost.get(p.id) ?? [];
     const primaryPageId =
       postPages[0]?.facebookPageId ?? p.facebookPageId ?? null;
@@ -120,8 +126,12 @@ export default async function PostsPage() {
         fileName: m.fileName,
         fileType: m.fileType,
       })),
+      videoUrl: firstVideo ? uploadMediaPublicUrl(firstVideo.filePath) : null,
+      firstComment: p.firstComment ?? null,
     };
   });
+
+  const publishPageIntervalMinutes = getPublishPageIntervalMinutes();
 
   // Status counts
   const counts = {
@@ -146,7 +156,11 @@ export default async function PostsPage() {
         }
       />
 
-      <PostFilters posts={postsWithMeta} counts={counts} />
+      <PostFilters
+        posts={postsWithMeta}
+        counts={counts}
+        publishPageIntervalMinutes={publishPageIntervalMinutes}
+      />
     </div>
   );
 }

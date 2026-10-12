@@ -10,6 +10,7 @@ import {
   getFacebookPageIdsForPost,
   refreshPostAggregateStatus,
 } from "@/lib/post-pages";
+import { scheduledAtForPageInBatch } from "@/lib/publish-settings";
 
 const STALE_PROCESSING_MS = 3 * 60 * 1000;
 
@@ -393,6 +394,10 @@ export async function enqueuePostsForBatch(
   }[]
 ) {
   for (const item of items) {
+    const scheduledAt = scheduledAtForPageInBatch(
+      item.scheduledAt,
+      item.queueOrder
+    );
     await db.insert(publishQueue).values({
       id: randomBytes(16).toString("hex"),
       userId: item.userId,
@@ -400,7 +405,7 @@ export async function enqueuePostsForBatch(
       facebookPageId: item.facebookPageId ?? null,
       batchId: item.batchId,
       queueOrder: item.queueOrder,
-      scheduledAt: item.scheduledAt,
+      scheduledAt,
       status: "pending",
     });
   }
