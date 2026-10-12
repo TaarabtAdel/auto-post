@@ -51,7 +51,7 @@ export const autoCampaign = sqliteTable("auto_campaign", {
   scheduleHours: text("schedule_hours"),
   /** Thời điểm chạy pipeline: tạo bài → render → hẹn queue */
   executeAt: integer("execute_at", { mode: "timestamp_ms" }),
-  /** live = đăng Fanpage thật; test = pipeline thật, đăng giả (console) */
+  /** live = queue Fanpage thật; test = log giả; manual = lưu nháp, đăng tay trên /posts */
   runMode: text("run_mode").notNull().default("live"),
   status: text("status").notNull().default("draft"),
   errorMessage: text("error_message"),

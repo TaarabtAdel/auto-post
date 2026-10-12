@@ -6,7 +6,11 @@ import { autoCampaign } from "@/db/schema/auto-campaign";
 import { eq, desc } from "drizzle-orm";
 import { randomBytes } from "crypto";
 import { autoCampaignToDto } from "@/lib/auto-campaign-api";
-import { parseRunMode } from "@/lib/auto-campaign-json";
+import {
+  parseRunMode,
+  stringifyPageIds,
+  stringifyScheduleHours,
+} from "@/lib/auto-campaign-json";
 
 export async function GET() {
   const session = await getAppSession({ headers: await headers() });
@@ -38,6 +42,9 @@ export async function POST(request: NextRequest) {
     wizardStep?: number;
     runMode?: string;
     autoDownloadVideo?: boolean;
+    workspaceAppId?: string | null;
+    facebookPageIds?: string[];
+    scheduleHours?: number[];
   };
 
   try {
@@ -67,6 +74,13 @@ export async function POST(request: NextRequest) {
     wizardStep: body.wizardStep ?? 0,
     runMode: parseRunMode(body.runMode),
     autoDownloadVideo: body.autoDownloadVideo ? 1 : 0,
+    workspaceAppId: body.workspaceAppId?.trim() || null,
+    facebookPageIds: body.facebookPageIds
+      ? stringifyPageIds(body.facebookPageIds)
+      : null,
+    scheduleHours: body.scheduleHours
+      ? stringifyScheduleHours(body.scheduleHours)
+      : null,
     status: "draft",
   });
 

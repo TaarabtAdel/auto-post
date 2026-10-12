@@ -388,10 +388,6 @@ export function PostEditForm({ post, apps, batchSiblings }: Props) {
 
   async function handleDelete() {
     const impact = describeDeleteImpact(post.status);
-    if (!impact.allow) {
-      setError(impact.detail);
-      return;
-    }
     if (!confirm(`${impact.title}\n\n${impact.detail}`)) return;
 
     setLoading(true);
@@ -851,16 +847,14 @@ export function PostEditForm({ post, apps, batchSiblings }: Props) {
             </button>
           </>
         )}
-        {describeDeleteImpact(post.status).allow && (
-          <button
-            type="button"
-            onClick={handleDelete}
-            disabled={loading}
-            className="text-red-600 border border-red-200 hover:bg-red-50 px-5 py-2 rounded-lg text-sm disabled:opacity-50"
-          >
-            Xóa bản ghi này
-          </button>
-        )}
+        <button
+          type="button"
+          onClick={handleDelete}
+          disabled={loading}
+          className="text-red-600 border border-red-200 hover:bg-red-50 px-5 py-2 rounded-lg text-sm disabled:opacity-50"
+        >
+          Xóa bản ghi này
+        </button>
         <Link
           href="/posts"
           className="border border-gray-300 text-gray-700 px-5 py-2 rounded-lg text-sm"

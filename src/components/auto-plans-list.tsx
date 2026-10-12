@@ -19,9 +19,9 @@ function statusBadgeClass(status: string): string {
 }
 
 function runModeBadgeClass(mode: string): string {
-  return mode === "test"
-    ? "bg-violet-100 text-violet-800"
-    : "bg-emerald-100 text-emerald-800";
+  if (mode === "test") return "bg-violet-100 text-violet-800";
+  if (mode === "manual") return "bg-amber-100 text-amber-900";
+  return "bg-emerald-100 text-emerald-800";
 }
 
 export function AutoPlansList() {
@@ -180,7 +180,7 @@ export function AutoPlansList() {
                 {Math.min(c.wizardStep + 1, 6)}/6
               </td>
               <td className={`${ui.td} text-gray-600 whitespace-nowrap`}>
-                {c.executeAtLabel ?? "—"}
+                {c.runMode === "manual" ? "Chạy ngay" : (c.executeAtLabel ?? "—")}
               </td>
               <td className={`${ui.td} text-gray-600 whitespace-nowrap text-xs`}>
                 {formatInAppTimezone(c.updatedAt, true)}

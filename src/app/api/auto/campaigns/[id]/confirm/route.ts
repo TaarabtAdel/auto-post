@@ -53,6 +53,12 @@ export async function POST(request: NextRequest, { params }: Params) {
   }
 
   const runMode = parseRunMode(body.runMode ?? row.runMode);
+  if (runMode === "manual") {
+    return NextResponse.json(
+      { error: "Chế độ thủ công không hẹn queue — dùng «Lưu & chạy ngay»." },
+      { status: 400 }
+    );
+  }
 
   await db
     .update(autoCampaign)

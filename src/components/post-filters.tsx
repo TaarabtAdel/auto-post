@@ -122,9 +122,7 @@ function PostActionsMenu({
 
   const showRun = canRunNow(status);
   const showFb = status === "posted" && fbUrl;
-  const showDelete = describeDeleteImpact(status).allow;
-  const busy =
-    runningPostId === postId || deletingPostId === postId || queueRunning;
+  const busy = runningPostId === postId || deletingPostId === postId;
 
   function closeAnd(fn: () => void) {
     setOpen(false);
@@ -163,7 +161,7 @@ function PostActionsMenu({
             <button
               type="button"
               role="menuitem"
-              disabled={busy}
+              disabled={busy || queueRunning}
               onClick={() => closeAnd(onRunNow)}
               className="w-full text-left px-3 py-2 text-sm text-gray-900 hover:bg-gray-50 disabled:opacity-50"
             >
@@ -182,17 +180,15 @@ function PostActionsMenu({
               Mở Facebook
             </a>
           )}
-          {showDelete && (
-            <button
-              type="button"
-              role="menuitem"
-              disabled={deletingPostId === postId || queueRunning}
-              onClick={() => closeAnd(onDelete)}
-              className="w-full text-left px-3 py-2 text-sm text-red-700 hover:bg-red-50 disabled:opacity-50"
-            >
-              {deletingPostId === postId ? "Đang xóa…" : "Xóa"}
-            </button>
-          )}
+          <button
+            type="button"
+            role="menuitem"
+            disabled={deletingPostId === postId}
+            onClick={() => closeAnd(onDelete)}
+            className="w-full text-left px-3 py-2 text-sm text-red-700 hover:bg-red-50 disabled:opacity-50"
+          >
+            {deletingPostId === postId ? "Đang xóa…" : "Xóa"}
+          </button>
         </div>
       )}
     </div>
@@ -293,10 +289,6 @@ export function PostFilters({
 
   async function deletePost(postId: string, status: string) {
     const impact = describeDeleteImpact(status);
-    if (!impact.allow) {
-      setRunError(impact.detail);
-      return;
-    }
     if (!confirm(`${impact.title}\n\n${impact.detail}`)) return;
 
     setDeletingPostId(postId);

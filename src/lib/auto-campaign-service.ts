@@ -37,7 +37,6 @@ import {
   parsePageIdsJson,
   parseRunMode,
   parseScheduleHoursJson,
-  type AutoCampaignRunMode,
 } from "@/lib/auto-campaign-json";
 
 function stepError(step: AutoPipelineStepLabel, cause: unknown): Error {
@@ -76,8 +75,11 @@ export function validateCampaignPlan(c: AutoCampaignRow): string | null {
   if (pageIds.length === 0) {
     return "Chọn ít nhất một Fanpage.";
   }
-  if (!c.executeAt || c.executeAt.getTime() <= Date.now()) {
-    return "Chọn thời điểm chạy AUTO trong tương lai.";
+  const runMode = parseRunMode(c.runMode);
+  if (runMode !== "manual") {
+    if (!c.executeAt || c.executeAt.getTime() <= Date.now()) {
+      return "Chọn thời điểm chạy AUTO trong tương lai.";
+    }
   }
   return null;
 }
@@ -124,10 +126,12 @@ export async function createCampaignPosts(campaign: AutoCampaignRow): Promise<{
   batchId: string;
 }> {
   if (campaign.postId1 && campaign.postId2 && campaign.postId3) {
+    const existingIds = [campaign.postId1, campaign.postId2, campaign.postId3];
     const firstComment = campaign.firstComment?.trim() || null;
-    for (const postId of [campaign.postId1, campaign.postId2, campaign.postId3]) {
+    for (const postId of existingIds) {
       await db.update(post).set({ firstComment }).where(eq(post.id, postId));
     }
+    await attachCampaignPagesToPosts(campaign, existingIds);
     return {
       postId1: campaign.postId1,
       postId2: campaign.postId2,
@@ -160,6 +164,8 @@ export async function createCampaignPosts(campaign: AutoCampaignRow): Promise<{
     ids.push(postId);
   }
 
+  await attachCampaignPagesToPosts(campaign, ids);
+
   await db
     .update(autoCampaign)
     .set({
@@ -173,6 +179,39 @@ export async function createCampaignPosts(campaign: AutoCampaignRow): Promise<{
     .where(eq(autoCampaign.id, campaign.id));
 
   return { postId1: ids[0], postId2: ids[1], postId3: ids[2], batchId };
+}
+
+async function attachCampaignPagesToPosts(
+  campaign: AutoCampaignRow,
+  postIds: string[]
+): Promise<string[]> {
+  const pageIds = parsePageIdsJson(campaign.facebookPageIds);
+  if (pageIds.length === 0) {
+    throw new Error("Chọn ít nhất một Fanpage.");
+  }
+  const validated = await validateUserPageIds(campaign.userId, pageIds, {
+    requireActiveToken: false,
+  });
+  if (!validated.ok) {
+    throw new Error(validated.error);
+  }
+  for (const postId of postIds) {
+    await replacePostFacebookPages(postId, pageIds);
+  }
+  return pageIds;
+}
+
+/** Gắn lại Fanpage plan vào 3 bài đã tạo (khi sửa plan). */
+export async function syncExistingCampaignPostPages(
+  campaign: AutoCampaignRow
+): Promise<void> {
+  if (!campaign.postId1 || !campaign.postId2 || !campaign.postId3) return;
+  if (parsePageIdsJson(campaign.facebookPageIds).length === 0) return;
+  await attachCampaignPagesToPosts(campaign, [
+    campaign.postId1,
+    campaign.postId2,
+    campaign.postId3,
+  ]);
 }
 
 async function attachVideoToPost(
@@ -278,6 +317,44 @@ export async function scheduleCampaignPosts(
     throw new Error(validated.error);
   }
 
+  const postIds = [campaign.postId1, campaign.postId2, campaign.postId3];
+  const batchId = campaign.batchId || randomBytes(16).toString("hex");
+  const runMode = parseRunMode(campaign.runMode);
+  const isTest = runMode === "test";
+  const isManual = runMode === "manual";
+
+  if (isManual) {
+    for (const postId of postIds) {
+      await replacePostFacebookPages(postId, pageIds);
+      await cancelPendingQueueForPost(postId);
+      await db
+        .update(post)
+        .set({
+          scheduledAt: null,
+          status: "draft",
+          batchId,
+          facebookPageId: pageIds[0] ?? null,
+          errorMessage: null,
+        })
+        .where(eq(post.id, postId));
+    }
+    autoStepLog(runMode, AUTO_PIPELINE_STEPS.PUBLISH, "TIẾN TRÌNH", {
+      campaignId: campaign.id,
+      sub: "Gắn Fanpage — lưu nháp, không đưa queue. Đăng tay trên /posts.",
+      pageCount: pageIds.length,
+    });
+    await db
+      .update(autoCampaign)
+      .set({
+        batchId,
+        status: "scheduled",
+        errorMessage: null,
+        executeAt: null,
+      })
+      .where(eq(autoCampaign.id, campaign.id));
+    return;
+  }
+
   const hours =
     scheduleHours && scheduleHours.length === 3
       ? scheduleHours
@@ -286,11 +363,6 @@ export async function scheduleCampaignPosts(
   if (hours.length !== 3) {
     throw new Error("Cần 3 khung giờ đăn.");
   }
-
-  const postIds = [campaign.postId1, campaign.postId2, campaign.postId3];
-  const batchId = campaign.batchId || randomBytes(16).toString("hex");
-  const runMode = parseRunMode(campaign.runMode);
-  const isTest = runMode === "test";
 
   const pageRows =
     pageIds.length > 0
@@ -319,11 +391,13 @@ export async function scheduleCampaignPosts(
     const postRow = await db.select().from(post).where(eq(post.id, postId)).limit(1);
     const contentPreview = postRow[0]?.content?.slice(0, 120) ?? "";
 
+    const postStatus = isTest ? "test_scheduled" : "queued";
+
     await db
       .update(post)
       .set({
         scheduledAt: scheduledDate,
-        status: isTest ? "test_scheduled" : "queued",
+        status: postStatus,
         batchId,
         facebookPageId: pageIds[0] ?? null,
         errorMessage: null,
@@ -449,7 +523,9 @@ export async function executeCampaignPipeline(campaign: AutoCampaignRow): Promis
       note:
         runMode === "test"
           ? "Test: giả lập đăng Fanpage (log only)"
-          : "Live: hẹn queue đăng Fanpage thật",
+          : runMode === "manual"
+            ? "Thủ công: gắn Fanpage, lưu nháp — đăng tay trên /posts"
+            : "Live: hẹn queue đăng Fanpage thật",
     });
     try {
       await scheduleCampaignPosts(row);

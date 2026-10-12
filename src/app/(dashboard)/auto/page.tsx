@@ -18,7 +18,7 @@ export default async function AutoPage({ searchParams }: Props) {
     <div className="space-y-6">
       <PageHeader
         title={campaignId ? "Sửa plan AUTO" : "Plan AUTO mới"}
-        description="Bước 1–5 lưu vào CSDL. Bước 6 hẹn giờ — cron tự tạo 3 bài, render reel và hẹn đăng."
+        description="Bước 1–5 lưu vào CSDL. Queue (Live/Test): hẹn giờ rồi cron tạo bài → render → vào hàng đợi. Thủ công: lưu là chạy ngay, không queue."
         actions={
           <Link href="/auto/plans" className={ui.btnSecondary}>
             ← Danh sách plan

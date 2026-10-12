@@ -1,4 +1,4 @@
-/** Mô tả xóa bài — dùng được cả client (confirm) và server. */
+/** Mô tả xóa bài — dùng được cả client (confirm) và server. Xóa luôn được, không chặn theo trạng thái. */
 
 export function describeDeleteImpact(status: string): {
   title: string;
@@ -7,9 +7,10 @@ export function describeDeleteImpact(status: string): {
 } {
   if (status === "posting") {
     return {
-      allow: false,
-      title: "Không thể xóa",
-      detail: "Bài đang đăng lên Facebook. Đợi vài phút rồi thử lại.",
+      allow: true,
+      title: "Xóa bài đang đăng?",
+      detail:
+        "Bài có thể đang gửi lên Facebook. Chỉ xóa bản ghi trong AutoPost; bài trên Facebook (nếu đã lên) không bị gỡ.",
     };
   }
   if (status === "posted") {

@@ -15,7 +15,6 @@ import {
   replacePostFacebookPages,
   validateUserPageIds,
 } from "@/lib/post-pages";
-import { describeDeleteImpact } from "@/lib/post-delete-impact";
 import { deleteMediaFilesForPost } from "@/lib/post-media-cleanup";
 import { uploadMediaPublicUrl } from "@/lib/upload-media-url";
 import {
@@ -282,11 +281,6 @@ export async function DELETE(_request: NextRequest, { params }: Params) {
   const p = await getOwnedPost(id, session.user.id);
   if (!p) {
     return NextResponse.json({ error: "Post không tồn tại." }, { status: 404 });
-  }
-
-  const impact = describeDeleteImpact(p.status);
-  if (!impact.allow) {
-    return NextResponse.json({ error: impact.detail }, { status: 409 });
   }
 
   await cancelPendingQueueForPost(id);

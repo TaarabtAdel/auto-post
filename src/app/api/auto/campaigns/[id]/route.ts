@@ -5,7 +5,11 @@ import { db } from "@/lib/db";
 import { autoCampaign } from "@/db/schema/auto-campaign";
 import { eq } from "drizzle-orm";
 import { autoCampaignToDto } from "@/lib/auto-campaign-api";
-import { deleteOwnedCampaign, getOwnedCampaign } from "@/lib/auto-campaign-service";
+import {
+  deleteOwnedCampaign,
+  getOwnedCampaign,
+  syncExistingCampaignPostPages,
+} from "@/lib/auto-campaign-service";
 import { parseRunMode } from "@/lib/auto-campaign-json";
 
 type Params = { params: Promise<{ id: string }> };
@@ -121,6 +125,9 @@ export async function PATCH(request: NextRequest, { params }: Params) {
   }
 
   const next = await getOwnedCampaign(id, session.user.id);
+  if (next && body.facebookPageIds !== undefined) {
+    await syncExistingCampaignPostPages(next);
+  }
   return NextResponse.json({ campaign: autoCampaignToDto(next!) });
 }
 

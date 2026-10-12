@@ -91,3 +91,64 @@ export async function processDueAutoCampaigns(): Promise<void> {
 
   await runPlannedAutoCampaign(head.id, head.userId, "cron");
 }
+
+/** Thủ công: lưu xong chạy pipeline ngay — không hẹn executeAt, không vào queue. */
+export async function runManualAutoCampaign(
+  campaignId: string,
+  userId: string
+): Promise<RunPlannedCampaignResult> {
+  if (autoPipelineRunning) {
+    return {
+      ok: false,
+      error: "Pipeline AUTO khác đang chạy — thử lại sau.",
+      httpStatus: 409,
+    };
+  }
+
+  const row = await getOwnedCampaign(campaignId, userId);
+  if (!row) {
+    return { ok: false, error: "Campaign không tồn tại.", httpStatus: 404 };
+  }
+  if (row.status === "running") {
+    return { ok: false, error: "Campaign đang chạy.", httpStatus: 409 };
+  }
+  if (row.status === "planned") {
+    return {
+      ok: false,
+      error: "Plan đang hẹn AUTO (queue). Không chạy thủ công khi đã hẹn giờ.",
+      httpStatus: 409,
+    };
+  }
+  if (row.status === "completed") {
+    return { ok: false, error: "Plan đã hoàn tất.", httpStatus: 409 };
+  }
+
+  await db
+    .update(autoCampaign)
+    .set({ runMode: "manual", executeAt: null })
+    .where(eq(autoCampaign.id, campaignId));
+
+  const next = await getOwnedCampaign(campaignId, userId);
+  if (!next) {
+    return { ok: false, error: "Campaign không tồn tại.", httpStatus: 404 };
+  }
+
+  const planErr = validateCampaignPlan(next);
+  if (planErr) {
+    return { ok: false, error: planErr, httpStatus: 400 };
+  }
+
+  autoPipelineRunning = true;
+  try {
+    autoPipelineMessage("manual", "Lưu & chạy ngay", { campaignId, trigger: "manual" });
+    cronLog("AUTO — chạy thủ công ngay", { campaignId });
+    await executeCampaignPipeline(next);
+    return { ok: true };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    cronLog("AUTO — pipeline thủ công thất bại", { campaignId, error: msg });
+    return { ok: false, error: msg, httpStatus: 500 };
+  } finally {
+    autoPipelineRunning = false;
+  }
+}

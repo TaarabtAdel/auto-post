@@ -14,7 +14,9 @@ export type AutoPipelineStepLabel =
 export type AutoPipelinePhase = "BẮT ĐẦU" | "XONG" | "LỖI" | "TIẾN TRÌNH";
 
 function modeTag(runMode: AutoCampaignRunMode): string {
-  return runMode === "test" ? "TEST" : "LIVE";
+  if (runMode === "test") return "TEST";
+  if (runMode === "manual") return "MANUAL";
+  return "LIVE";
 }
 
 /** Log một bước AUTO — console + bảng system_log. */

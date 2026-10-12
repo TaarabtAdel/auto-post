@@ -1,14 +1,38 @@
-import { db } from "@/lib/db";
+import { db, sqlite as getSqlite } from "@/lib/db";
 import { facebookPage } from "@/db/schema/facebook-page";
 import { workspaceApp } from "@/db/schema/workspace-app";
 import { encryptAppSecret } from "@/lib/workspace-app";
 import { isNull, eq } from "drizzle-orm";
 import { randomBytes } from "crypto";
 
+export function migrateWorkspaceAppSchema() {
+  const sqlite = getSqlite();
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS workspace_app (
+      id TEXT PRIMARY KEY NOT NULL,
+      user_id TEXT NOT NULL REFERENCES user(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      description TEXT,
+      facebook_app_id TEXT NOT NULL,
+      encrypted_app_secret TEXT NOT NULL,
+      encrypted_user_token TEXT,
+      created_at INTEGER NOT NULL DEFAULT (cast(unixepoch('subsecond') * 1000 as integer)),
+      updated_at INTEGER NOT NULL DEFAULT (cast(unixepoch('subsecond') * 1000 as integer))
+    );
+  `);
+  const cols = sqlite.prepare(`PRAGMA table_info(workspace_app)`).all() as {
+    name: string;
+  }[];
+  if (!cols.some((c) => c.name === "encrypted_user_token")) {
+    sqlite.exec(`ALTER TABLE workspace_app ADD COLUMN encrypted_user_token TEXT`);
+  }
+}
+
 /**
  * Gán Page cũ vào workspace app; một lần import FB credentials từ env (legacy).
  */
 export async function migrateLegacyWorkspaceApps() {
+  migrateWorkspaceAppSchema();
   const legacyAppId = process.env.FACEBOOK_APP_ID?.trim();
   const legacySecret = process.env.FACEBOOK_APP_SECRET?.trim();
 

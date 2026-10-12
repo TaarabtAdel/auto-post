@@ -13,7 +13,7 @@ export default function AutoPlansPage() {
     <div className="space-y-6">
       <PageHeader
         title="Plan AUTO"
-        description="Danh sách plan AUTO. Test: pipeline thật, không đăng FB (test_scheduled). Live: sau khi plan chạy xong, bài nằm trên /posts — queue tự đăng nếu Page có token; hoặc đăng tay trên FB rồi bật «Đã đăng» (hủy job queue Page đó). Khoảng cách giữa các Page cấu hình tại /posts. Page chưa token (thêm thủ công) không chọn được trong wizard AUTO."
+        description="Queue: Live đăng thật / Test giả lập — hẹn giờ rồi vào hàng đợi. Thủ công: lưu là chạy ngay, không queue; bài nháp trên /posts để Đăng từng Page."
         actions={
           <Link href="/auto" className={ui.btnPrimary}>
             + Plan mới

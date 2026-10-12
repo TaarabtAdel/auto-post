@@ -459,6 +459,40 @@ export function AutoWizard({ initialCampaignId = null }: AutoWizardProps) {
     }
   }
 
+  async function saveAndRunManual() {
+    setError("");
+    if (
+      !window.confirm(
+        "Chạy ngay: tạo 3 bài → render reel → gắn Fanpage, lưu nháp trên /posts.\nKhông hẹn giờ, không vào queue. Có thể mất vài phút."
+      )
+    ) {
+      return;
+    }
+    setBusy(true);
+    setNote("Đang chạy pipeline thủ công…");
+    try {
+      const saved = await saveToDb(6, { runMode: "manual" });
+      const res = await fetch(`/api/auto/campaigns/${saved.id}/run-manual`, {
+        method: "POST",
+      });
+      const data = await res.json();
+      if (data.campaign) {
+        loadCampaignIntoForm(data.campaign as AutoCampaignDto);
+      }
+      if (!res.ok) throw new Error(data.error || "Chạy thủ công thất bại.");
+      setNote(
+        data.campaign?.status === "completed"
+          ? "Xong. Bài nháp đã gắn Fanpage — vào /posts → Đăng từng Page."
+          : "Đã gửi chạy pipeline thủ công."
+      );
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Chạy thủ công thất bại.");
+      setNote("");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   if (booting) {
     return <p className="text-sm text-gray-500">Đang tải plan…</p>;
   }
@@ -473,7 +507,11 @@ export function AutoWizard({ initialCampaignId = null }: AutoWizardProps) {
           </span>
           <span
             className={`text-xs font-medium px-2 py-0.5 rounded-full ${
-              runMode === "test" ? "bg-violet-100 text-violet-800" : "bg-emerald-100 text-emerald-800"
+              runMode === "test"
+                ? "bg-violet-100 text-violet-800"
+                : runMode === "manual"
+                  ? "bg-amber-100 text-amber-900"
+                  : "bg-emerald-100 text-emerald-800"
             }`}
           >
             {autoCampaignRunModeLabel(runMode)}
@@ -483,9 +521,22 @@ export function AutoWizard({ initialCampaignId = null }: AutoWizardProps) {
 
       {locked && campaign && (
         <div className={ui.alertSuccess}>
-          Plan đã khóa. Hệ thống sẽ chạy AUTO lúc{" "}
-          <strong>{campaign.executeAtLabel ?? "—"}</strong>
-          {campaign.status === "planned" && (
+          {campaign.runMode === "manual" ? (
+            <>
+              Plan thủ công
+              {campaign.status === "running"
+                ? " — đang chạy pipeline…"
+                : campaign.status === "completed"
+                  ? " — đã tạo bài nháp."
+                  : " đã khóa."}{" "}
+            </>
+          ) : (
+            <>
+              Plan đã khóa. Hệ thống sẽ chạy AUTO lúc{" "}
+              <strong>{campaign.executeAtLabel ?? "—"}</strong>
+            </>
+          )}
+          {campaign.status === "planned" && campaign.runMode !== "manual" && (
             <div className="mt-3 flex flex-wrap items-center gap-2">
               <button
                 type="button"
@@ -863,32 +914,34 @@ export function AutoWizard({ initialCampaignId = null }: AutoWizardProps) {
             onSelectedPageIdsChange={setSelectedPageIds}
             disabled={locked}
           />
-          <div className="grid sm:grid-cols-3 gap-3 pt-2 border-t border-gray-100">
-            {scheduleHours.map((h, i) => (
-              <label key={i} className="text-sm block">
-                Giờ đăn đoạn {i + 1} (VN, sau khi AUTO chạy)
-                <select
-                  value={h}
-                  disabled={locked}
-                  onChange={(e) => {
-                    const v = Number(e.target.value);
-                    setScheduleHours((prev) => {
-                      const next = [...prev];
-                      next[i] = v;
-                      return next;
-                    });
-                  }}
-                  className={`${ui.select} w-full mt-1`}
-                >
-                  {[4, 6, 9, 18, 20, 22].map((hour) => (
-                    <option key={hour} value={hour}>
-                      {String(hour).padStart(2, "0")}:00
-                    </option>
-                  ))}
-                </select>
-              </label>
-            ))}
-          </div>
+          {runMode !== "manual" && (
+            <div className="grid sm:grid-cols-3 gap-3 pt-2 border-t border-gray-100">
+              {scheduleHours.map((h, i) => (
+                <label key={i} className="text-sm block">
+                  Giờ đăn đoạn {i + 1} (VN, sau khi AUTO chạy)
+                  <select
+                    value={h}
+                    disabled={locked}
+                    onChange={(e) => {
+                      const v = Number(e.target.value);
+                      setScheduleHours((prev) => {
+                        const next = [...prev];
+                        next[i] = v;
+                        return next;
+                      });
+                    }}
+                    className={`${ui.select} w-full mt-1`}
+                  >
+                    {[4, 6, 9, 18, 20, 22].map((hour) => (
+                      <option key={hour} value={hour}>
+                        {String(hour).padStart(2, "0")}:00
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              ))}
+            </div>
+          )}
           <button
             type="button"
             className={ui.btnPrimary}
@@ -917,68 +970,116 @@ export function AutoWizard({ initialCampaignId = null }: AutoWizardProps) {
             <li>
               <span className="text-gray-500">Fanpage:</span> {selectedPageIds.size} page
             </li>
+            {runMode !== "manual" && (
+              <li>
+                <span className="text-gray-500">Giờ đăn 3 đoạn:</span>{" "}
+                {scheduleHours.map((h) => `${String(h).padStart(2, "0")}:00`).join(" · ")}
+              </li>
+            )}
             <li>
-              <span className="text-gray-500">Giờ đăn 3 đoạn:</span>{" "}
-              {scheduleHours.map((h) => `${String(h).padStart(2, "0")}:00`).join(" · ")}
-            </li>
-            <li>
-              <span className="text-gray-500">Khi AUTO chạy sẽ:</span> Tạo 3 bài → Render 3 reel →
-              Gắn video → Hẹn queue
-            </li>
-            <li>
-              <span className="text-gray-500">Chế độ:</span>{" "}
-              {autoCampaignRunModeLabel(runMode)}
-              {runMode === "test" ? " (đăng Fanpage = log console)" : ""}
+              <span className="text-gray-500">Khi chạy sẽ:</span>{" "}
+              {runMode === "manual"
+                ? "Tạo 3 bài → Render 3 reel → Gắn Fanpage → Lưu nháp (đăng tay trên /posts)"
+                : "Tạo 3 bài → Render 3 reel → Gắn Fanpage → Hẹn queue"}
             </li>
           </ul>
 
           {!locked && (
             <>
-              <fieldset className="space-y-2">
-                <legend className="text-sm font-medium text-gray-900">Chế độ chạy</legend>
-                <div className="flex flex-wrap gap-4 text-sm">
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <input
-                      type="radio"
-                      name="runMode"
-                      checked={runMode === "live"}
-                      onChange={() => setRunMode("live")}
-                    />
-                    <span>
-                      <strong>Live</strong> — đăng Fanpage thật qua queue
-                    </span>
-                  </label>
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <input
-                      type="radio"
-                      name="runMode"
-                      checked={runMode === "test"}
-                      onChange={() => setRunMode("test")}
-                    />
-                    <span>
-                      <strong>Test</strong> — pipeline thật, đăng Fanpage giả (xem log pm2{" "}
-                      <code className="text-xs">[cron] AUTO [TEST]</code>)
-                    </span>
-                  </label>
+              <div className="space-y-2">
+                <p className="text-sm font-medium text-gray-900">Cách đăng</p>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (runMode === "manual") setRunMode("live");
+                    }}
+                    className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                      runMode !== "manual"
+                        ? "bg-blue-600 text-white"
+                        : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                    }`}
+                  >
+                    Queue
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setRunMode("manual")}
+                    className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                      runMode === "manual"
+                        ? "bg-amber-600 text-white"
+                        : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                    }`}
+                  >
+                    Thủ công
+                  </button>
                 </div>
-              </fieldset>
-              <label className="block text-sm font-medium">
-                Thời điểm chạy AUTO (tạo bài + render + hẹn đăng)
-                <input
-                  type="datetime-local"
-                  value={executeAtLocal}
-                  onChange={(e) => setExecuteAtLocal(e.target.value)}
-                  className={`${ui.input} mt-1 max-w-xs`}
-                />
-              </label>
-              <button
-                type="button"
-                className={ui.btnSuccess}
-                disabled={busy || !executeAtLocal}
-                onClick={() => void confirmPlan()}
-              >
-                Xác nhận plan & hẹn chạy AUTO
-              </button>
+              </div>
+
+              {runMode === "manual" ? (
+                <>
+                  <p className="text-sm text-gray-600">
+                    Lưu là chạy ngay: tạo bài + render + gắn Fanpage, lưu nháp. Không hẹn giờ, không
+                    vào queue. Vào /posts → «Đăng» từng Page (không cần token active).
+                  </p>
+                  <button
+                    type="button"
+                    className={ui.btnSuccess}
+                    disabled={busy}
+                    onClick={() => void saveAndRunManual()}
+                  >
+                    {busy ? "Đang chạy…" : "Lưu & chạy ngay"}
+                  </button>
+                </>
+              ) : (
+                <>
+                  <fieldset className="space-y-2">
+                    <legend className="text-sm font-medium text-gray-900">Chế độ queue</legend>
+                    <div className="flex flex-wrap gap-4 text-sm">
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="radio"
+                          name="runMode"
+                          checked={runMode === "live"}
+                          onChange={() => setRunMode("live")}
+                        />
+                        <span>
+                          <strong>Live</strong> — đăng Fanpage thật qua queue
+                        </span>
+                      </label>
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="radio"
+                          name="runMode"
+                          checked={runMode === "test"}
+                          onChange={() => setRunMode("test")}
+                        />
+                        <span>
+                          <strong>Test</strong> — pipeline thật, đăng Fanpage giả (xem log pm2{" "}
+                          <code className="text-xs">[cron] AUTO [TEST]</code>)
+                        </span>
+                      </label>
+                    </div>
+                  </fieldset>
+                  <label className="block text-sm font-medium">
+                    Thời điểm chạy AUTO (tạo bài + render + hẹn đăng)
+                    <input
+                      type="datetime-local"
+                      value={executeAtLocal}
+                      onChange={(e) => setExecuteAtLocal(e.target.value)}
+                      className={`${ui.input} mt-1 max-w-xs`}
+                    />
+                  </label>
+                  <button
+                    type="button"
+                    className={ui.btnSuccess}
+                    disabled={busy || !executeAtLocal}
+                    onClick={() => void confirmPlan()}
+                  >
+                    Xác nhận plan & hẹn chạy AUTO
+                  </button>
+                </>
+              )}
             </>
           )}
 

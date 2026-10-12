@@ -1,14 +1,17 @@
 export const DEFAULT_SCHEDULE_HOURS = [18, 20, 22] as const;
 
-export const AUTO_CAMPAIGN_RUN_MODES = ["live", "test"] as const;
+export const AUTO_CAMPAIGN_RUN_MODES = ["live", "test", "manual"] as const;
 export type AutoCampaignRunMode = (typeof AUTO_CAMPAIGN_RUN_MODES)[number];
 
 export function parseRunMode(raw: string | null | undefined): AutoCampaignRunMode {
-  return raw === "test" ? "test" : "live";
+  if (raw === "test" || raw === "manual") return raw;
+  return "live";
 }
 
 export function autoCampaignRunModeLabel(mode: AutoCampaignRunMode): string {
-  return mode === "test" ? "Test" : "Live";
+  if (mode === "test") return "Test";
+  if (mode === "manual") return "Thủ công";
+  return "Live";
 }
 
 export function parsePageIdsJson(raw: string | null | undefined): string[] {
