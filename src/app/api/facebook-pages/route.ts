@@ -5,7 +5,11 @@ import { db } from "@/lib/db";
 import { facebookPage } from "@/db/schema/facebook-page";
 import { pageCategory } from "@/db/schema/page-category";
 import { eq, and } from "drizzle-orm";
-import { verifyPageToken } from "@/lib/facebook";
+import {
+  normalizeFacebookPageId,
+  verifyPageAccessTokenForPage,
+  verifyPageToken,
+} from "@/lib/facebook";
 import { encrypt } from "@/lib/crypto";
 import { getWorkspaceAppForUser } from "@/lib/workspace-app";
 import { randomBytes } from "crypto";
@@ -54,7 +58,12 @@ export async function POST(request: NextRequest) {
     headers: await headers(),
   });
 
-  let body: { accessToken?: string; workspaceAppId?: string };
+  let body: {
+    accessToken?: string;
+    workspaceAppId?: string;
+    pageId?: string;
+    pageName?: string;
+  };
   try {
     body = await request.json();
   } catch {
@@ -65,6 +74,8 @@ export async function POST(request: NextRequest) {
   }
 
   const { accessToken, workspaceAppId } = body;
+  const manualPageId = body.pageId?.trim() ?? "";
+  const manualPageName = body.pageName?.trim() ?? "";
 
   if (!workspaceAppId?.trim()) {
     return NextResponse.json(
@@ -84,10 +95,39 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  if (manualPageId !== "" || manualPageName !== "") {
+    if (manualPageId === "" || manualPageName === "") {
+      return NextResponse.json(
+        { error: "Nhập đủ Tên Fanpage và ID Fanpage, hoặc bỏ trống cả hai (chỉ dán token)." },
+        { status: 400 }
+      );
+    }
+  }
+
   // Verify token with Facebook Graph API
   let pageInfo;
   try {
-    pageInfo = await verifyPageToken(accessToken.trim());
+    if (manualPageId !== "" && manualPageName !== "") {
+      const verified = await verifyPageAccessTokenForPage(
+        manualPageId,
+        accessToken.trim()
+      );
+      const expectedId = normalizeFacebookPageId(manualPageId);
+      if (verified.pageId !== expectedId) {
+        return NextResponse.json(
+          {
+            error: `Token gắn với Page ID ${verified.pageId}, khác ID đã nhập (${expectedId}).`,
+          },
+          { status: 400 }
+        );
+      }
+      pageInfo = {
+        ...verified,
+        pageName: manualPageName,
+      };
+    } else {
+      pageInfo = await verifyPageToken(accessToken.trim());
+    }
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Không thể verify token.";

@@ -18,6 +18,8 @@ Quản lý và tự động đăng bài lên Facebook Page: hẹn giờ, queue, 
 
 ## Cài đặt nhanh (local)
 
+**Windows:** chạy [`install-local.bat`](install-local.bat) trong thư mục project (tương đương các bước bên dưới; tạo `.env` từ [`.env.local.example`](.env.local.example) và sinh secret).
+
 ```bash
 git clone https://github.com/TaarabtAdel/auto-post.git
 cd auto-post
@@ -31,7 +33,8 @@ npm run postinstall
 node scripts/postinstall.js
 
 # 2) Biến môi trường
-cp .env.production.example .env
+cp .env.local.example .env          # local dev (khuyến nghị)
+# hoặc: cp .env.production.example .env   # VPS / production
 # Sửa .env — xem mục "Biến môi trường" bên dưới
 
 # 3) Database
@@ -279,6 +282,15 @@ Trong Docker: image thường dùng `yt-dlp` apt + `YOUTUBE_DL_SKIP_DOWNLOAD=1` 
 ### AUTO / SQLite: `no such column` sau khi pull code
 
 Restart app để `instrumentation` chạy migration (`auto_campaign`, `system_log`, …). Nếu vẫn lỗi: backup `sqlite.db`, chạy `npx drizzle-kit push`, restart pm2.
+
+### Ảnh / media: `/api/uploads/...` trả **403 Forbidden**
+
+Media được serve qua API (cần session), path lưu DB dạng `backgrounds/{userId}/…` hoặc legacy `{userId}/…`.
+
+1. **Cài trên máy mới:** copy **cả** `sqlite.db` **và** thư mục `uploads/`. DB mới tạo user id khác → file cũ trong `uploads/` vẫn gắn user cũ → 403. Cách xử lý: mang theo DB cũ, hoặc upload lại ảnh.
+2. **Windows:** bản cũ dùng `path.normalize()` làm lệch path → 403 ngay sau upload; cập nhật code mới (chuẩn hoá `/` trong `normalizeUploadRelativePath`).
+3. **`BETTER_AUTH_URL`** phải trùng URL trên trình duyệt (vd. `http://localhost:3000`) để cookie/session đúng.
+4. Thư mục `uploads/backgrounds/{userId}/` phải tồn tại và có quyền đọc; app tự `mkdir` khi upload.
 
 ### `spawn .../ffmpeg-static/ffmpeg EACCES`
 

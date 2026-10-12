@@ -463,6 +463,12 @@ export function PagesManager({
   const [loading, setLoading] = useState(false);
 
   const [createAppId, setCreateAppId] = useState(apps[0]?.id ?? "");
+  const [createUseNewApp, setCreateUseNewApp] = useState(apps.length === 0);
+  const [createAppName, setCreateAppName] = useState("");
+  const [createFbAppId, setCreateFbAppId] = useState("");
+  const [createFbAppSecret, setCreateFbAppSecret] = useState("");
+  const [createPageName, setCreatePageName] = useState("");
+  const [createPageId, setCreatePageId] = useState("");
   const [createToken, setCreateToken] = useState("");
 
   const [editAppId, setEditAppId] = useState("");
@@ -685,6 +691,12 @@ export function PagesManager({
     setEditPage(null);
     setError("");
     setCreateToken("");
+    setCreateUseNewApp(apps.length === 0);
+    setCreateAppName("");
+    setCreateFbAppId("");
+    setCreateFbAppSecret("");
+    setCreatePageName("");
+    setCreatePageId("");
     setEditToken("");
     setEditRequireToken(false);
     setCurrentToken(null);
@@ -835,6 +847,12 @@ export function PagesManager({
 
   function openCreate() {
     setCreateAppId(apps[0]?.id ?? "");
+    setCreateUseNewApp(apps.length === 0);
+    setCreateAppName("");
+    setCreateFbAppId("");
+    setCreateFbAppSecret("");
+    setCreatePageName("");
+    setCreatePageId("");
     setCreateToken("");
     setError("");
     setModal("create");
@@ -862,24 +880,107 @@ export function PagesManager({
 
   async function handleCreateManual(e: React.FormEvent) {
     e.preventDefault();
-    if (!createAppId) {
-      setError("Chọn Facebook App.");
-      return;
+
+    const manualName = createPageName.trim();
+    const manualId = createPageId.trim();
+    const hasManualMeta = manualName !== "" || manualId !== "";
+    const requirePageMeta = createUseNewApp;
+
+    if (requirePageMeta) {
+      if (!manualName) {
+        setError("Nhập Tên Fanpage.");
+        return;
+      }
+      if (!manualId) {
+        setError("Nhập ID Fanpage.");
+        return;
+      }
+    } else if (hasManualMeta) {
+      if (!manualName) {
+        setError("Nhập Tên Fanpage.");
+        return;
+      }
+      if (!manualId) {
+        setError("Nhập ID Fanpage.");
+        return;
+      }
     }
+
     if (!createToken.trim()) {
       setError("Nhập Page Access Token.");
       return;
     }
+
+    if (createUseNewApp) {
+      const appName = createAppName.trim();
+      const fbAppId = createFbAppId.trim();
+      const fbSecret = createFbAppSecret.trim();
+      if (!appName) {
+        setError("Nhập tên App (vd. App chính).");
+        return;
+      }
+      if (!fbAppId || !/^\d+$/.test(fbAppId)) {
+        setError("Facebook App ID phải là số.");
+        return;
+      }
+      if (!fbSecret || fbSecret.length < 8) {
+        setError("Nhập Facebook App Secret.");
+        return;
+      }
+    } else if (!createAppId) {
+      setError("Chọn Facebook App hoặc chọn “Thêm App mới”.");
+      return;
+    }
+
     setLoading(true);
     setError("");
     try {
+      let workspaceAppId = createAppId;
+
+      if (createUseNewApp) {
+        const appName = createAppName.trim();
+        const fbAppId = createFbAppId.trim();
+        const fbSecret = createFbAppSecret.trim();
+
+        const appRes = await fetch("/api/workspace-apps", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            name: appName,
+            facebookAppId: fbAppId,
+            facebookAppSecret: fbSecret,
+          }),
+        });
+        const appData = await appRes.json();
+        if (!appRes.ok) {
+          setError(appData.error || "Không thể tạo App.");
+          return;
+        }
+        workspaceAppId = appData.app?.id as string;
+        if (!workspaceAppId) {
+          setError("Không nhận được id App sau khi tạo.");
+          return;
+        }
+      }
+
+      const payload: {
+        workspaceAppId: string;
+        accessToken: string;
+        pageId?: string;
+        pageName?: string;
+      } = {
+        workspaceAppId,
+        accessToken: createToken.trim(),
+      };
+      if (requirePageMeta || hasManualMeta) {
+        payload.pageId = manualId;
+        payload.pageName = manualName;
+      }
+
       const res = await fetch("/api/facebook-pages", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          workspaceAppId: createAppId,
-          accessToken: createToken.trim(),
-        }),
+        body: JSON.stringify(payload),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -1536,40 +1637,167 @@ export function PagesManager({
               {error}
             </div>
           )}
-          <label className="block text-sm font-medium text-gray-700 mb-1">
-            Facebook App
-          </label>
-          <select
-            value={createAppId}
-            onChange={(e) => setCreateAppId(e.target.value)}
-            className="w-full mb-4 px-3 py-2 border border-gray-300 rounded-lg text-sm"
-          >
-            {apps.map((a) => (
-              <option key={a.id} value={a.id}>
-                {a.name}
-              </option>
-            ))}
-          </select>
-          <a
-            href={`/api/auth/facebook/connect?workspaceAppId=${encodeURIComponent(createAppId)}`}
-            className="inline-flex items-center gap-2 bg-[#1877F2] text-white py-2 px-4 rounded-lg text-sm font-medium mb-4"
-          >
-            Đăng nhập Facebook (OAuth)
-          </a>
+
+          {apps.length === 0 ? (
+            <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-4">
+              Chưa có Facebook App trong workspace. Nhập App + Fanpage bên dưới (không cần vào{" "}
+              <strong>/apps</strong> trước).
+            </p>
+          ) : (
+            <div className="flex flex-wrap gap-2 mb-4">
+              <button
+                type="button"
+                onClick={() => setCreateUseNewApp(false)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium ${
+                  !createUseNewApp
+                    ? "bg-blue-600 text-white"
+                    : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                }`}
+              >
+                App có sẵn
+              </button>
+              <button
+                type="button"
+                onClick={() => setCreateUseNewApp(true)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium ${
+                  createUseNewApp
+                    ? "bg-blue-600 text-white"
+                    : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                }`}
+              >
+                Thêm App mới
+              </button>
+            </div>
+          )}
+
+          {!createUseNewApp && apps.length > 0 && (
+            <>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Facebook App
+              </label>
+              <select
+                value={createAppId}
+                onChange={(e) => setCreateAppId(e.target.value)}
+                className="w-full mb-4 px-3 py-2 border border-gray-300 rounded-lg text-sm"
+              >
+                {apps.map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {a.name} ({a.facebookAppId})
+                  </option>
+                ))}
+              </select>
+              {createAppId ? (
+                <a
+                  href={`/api/auth/facebook/connect?workspaceAppId=${encodeURIComponent(createAppId)}`}
+                  className="inline-flex items-center gap-2 bg-[#1877F2] text-white py-2 px-4 rounded-lg text-sm font-medium mb-4"
+                >
+                  Đăng nhập Facebook (OAuth)
+                </a>
+              ) : null}
+            </>
+          )}
+
           <form onSubmit={handleCreateManual} className="border-t border-gray-100 pt-4 space-y-3">
-            <p className="text-xs text-gray-500">Hoặc dán Page Access Token thủ công:</p>
-            <input
-              value={createToken}
-              onChange={(e) => setCreateToken(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm font-mono"
-              placeholder="EAAG..."
-            />
+            {createUseNewApp && (
+              <div className="space-y-3 pb-3 border-b border-gray-100">
+                <p className="text-xs font-semibold text-gray-800 uppercase tracking-wide">
+                  Facebook App
+                </p>
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">
+                    Tên App (trong AutoPost)
+                  </label>
+                  <input
+                    value={createAppName}
+                    onChange={(e) => setCreateAppName(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                    placeholder="VD: App Fanpage chính"
+                    autoComplete="off"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">
+                    Facebook App ID
+                  </label>
+                  <input
+                    value={createFbAppId}
+                    onChange={(e) => setCreateFbAppId(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm font-mono"
+                    placeholder="1631592615023549"
+                    inputMode="numeric"
+                    autoComplete="off"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">
+                    Facebook App Secret
+                  </label>
+                  <input
+                    type="password"
+                    value={createFbAppSecret}
+                    onChange={(e) => setCreateFbAppSecret(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm font-mono"
+                    placeholder="App Secret từ Meta Developer"
+                    autoComplete="new-password"
+                  />
+                </div>
+              </div>
+            )}
+
+            <p className="text-xs font-semibold text-gray-800 uppercase tracking-wide">
+              Fanpage
+            </p>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">
+                Tên Fanpage
+              </label>
+              <input
+                value={createPageName}
+                onChange={(e) => setCreatePageName(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                placeholder="VD: Trung tâm ABC"
+                autoComplete="off"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">
+                ID Fanpage
+              </label>
+              <input
+                value={createPageId}
+                onChange={(e) => setCreatePageId(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm font-mono"
+                placeholder="123456789012345"
+                inputMode="numeric"
+                autoComplete="off"
+              />
+              {!createUseNewApp && (
+                <p className="text-[11px] text-gray-500 mt-1">
+                  Có thể để trống tên/ID — hệ thống tự lấy từ Page token.
+                </p>
+              )}
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">
+                Page Access Token
+              </label>
+              <input
+                value={createToken}
+                onChange={(e) => setCreateToken(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm font-mono"
+                placeholder="EAAG..."
+              />
+            </div>
             <button
               type="submit"
               disabled={loading}
               className="w-full bg-gray-800 text-white py-2 rounded-lg text-sm disabled:opacity-50"
             >
-              {loading ? "Đang xác thực..." : "Thêm Page"}
+              {loading
+                ? "Đang lưu..."
+                : createUseNewApp
+                  ? "Tạo App và kết nối Page"
+                  : "Thêm Page"}
             </button>
           </form>
         </Modal>

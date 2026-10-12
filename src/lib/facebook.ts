@@ -252,6 +252,62 @@ export interface FacebookApiError {
  * If token is a Page token, /me returns the Page info.
  * Throws on invalid/expired token or network error.
  */
+export function normalizeFacebookPageId(raw: string): string {
+  return raw.trim().replace(/\s+/g, "");
+}
+
+/**
+ * Verify token có quyền với Page cụ thể (GET /{pageId}).
+ * Dùng khi người dùng nhập tay ID Fanpage + token.
+ */
+export async function verifyPageAccessTokenForPage(
+  pageId: string,
+  token: string
+): Promise<FacebookPageInfo> {
+  const id = normalizeFacebookPageId(pageId);
+  if (!/^\d+$/.test(id)) {
+    throw new Error("ID Fanpage phải là số (vd. 123456789012345).");
+  }
+
+  const url = `${GRAPH_API_BASE}/${encodeURIComponent(id)}?fields=id,name,picture&access_token=${encodeURIComponent(token.trim())}`;
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT);
+
+  try {
+    const res = await fetch(url, { signal: controller.signal });
+    const data = await res.json();
+
+    if (data.error) {
+      const err = data.error as FacebookApiError;
+      if (err.code === 190) {
+        throw new Error("Token hết hạn hoặc không hợp lệ. Vui lòng tạo token mới.");
+      }
+      throw new Error(
+        err.message ||
+          "Token không truy cập được Page này — kiểm tra ID Fanpage và Page Access Token."
+      );
+    }
+
+    if (!data.id) {
+      throw new Error("Không xác thực được Page với token đã nhập.");
+    }
+
+    return {
+      pageId: String(data.id),
+      pageName: (data.name as string) || id,
+      pageAvatar: data.picture?.data?.url || null,
+    };
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      throw new Error("Kết nối tới Facebook timeout. Vui lòng thử lại.");
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 export async function verifyPageToken(
   token: string
 ): Promise<FacebookPageInfo> {

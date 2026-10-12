@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { readFile, stat } from "fs/promises";
-import { resolve, normalize, sep } from "path";
+import { resolve, relative } from "path";
 import { normalizeUploadRelativePath } from "@/lib/upload-media-url";
 import { getAppSession } from "@/lib/app-session";
 import {
@@ -37,9 +37,11 @@ export async function GET(_request: NextRequest, { params }: Params) {
     headers: await headers(),
   });
 
-  const requestedPath = normalize(
-    normalizeUploadRelativePath(pathSegments.join("/"))
-  );
+  const requestedPath = normalizeUploadRelativePath(pathSegments.join("/"));
+  if (!requestedPath || requestedPath.includes("..")) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
   const ownerId = ownerUserIdFromUploadPath(requestedPath);
   if (!ownerId || ownerId !== session.user.id) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
@@ -49,9 +51,10 @@ export async function GET(_request: NextRequest, { params }: Params) {
   }
 
   const uploadsDir = resolve(process.cwd(), "uploads");
-  const filePath = resolve(uploadsDir, requestedPath);
+  const filePath = resolve(uploadsDir, ...requestedPath.split("/"));
 
-  if (!filePath.startsWith(uploadsDir + sep) && filePath !== uploadsDir) {
+  const relFromRoot = relative(uploadsDir, filePath);
+  if (relFromRoot.startsWith("..") || relFromRoot.includes("..")) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 

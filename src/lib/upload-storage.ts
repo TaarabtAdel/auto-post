@@ -82,7 +82,12 @@ export async function ensureUserBucket(userId: string, bucket: UploadBucket): Pr
 }
 
 function normalizeStoredPath(filePath: string): string {
-  return filePath.trim().replace(/^\/+/, "").replace(/^uploads\//, "");
+  return filePath
+    .trim()
+    .replace(/\\/g, "/")
+    .replace(/^\/+/, "")
+    .replace(/^uploads\//, "")
+    .replace(/\/+/g, "/");
 }
 
 /** User id trong path lưu DB: `{bucket}/{userId}/…` hoặc legacy `{userId}/…`. */

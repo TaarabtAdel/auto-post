@@ -5,13 +5,13 @@ import { join } from "path";
  * Tolerates legacy values with uploads/ or /api/uploads/ prefix.
  */
 export function normalizeUploadRelativePath(filePath: string): string {
-  let p = filePath.trim().replace(/^\/+/, "");
+  let p = filePath.trim().replace(/\\/g, "/").replace(/^\/+/, "");
   if (p.startsWith("api/uploads/")) {
     p = p.slice("api/uploads/".length);
   } else if (p.startsWith("uploads/")) {
     p = p.slice("uploads/".length);
   }
-  return p;
+  return p.replace(/\/+/g, "/").replace(/^\/+|\/+$/g, "");
 }
 
 /** Authenticated URL to stream a file (GET /api/uploads/...). */
