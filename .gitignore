@@ -25,6 +25,9 @@
 /sqlite.db-wal
 /sqlite.db-shm
 
+# cursor — thông tin VPS/SSH local (không đẩy lên remote)
+.cursor/rules/vps-gdata.mdc
+
 # misc
 .DS_Store
 *.pem
