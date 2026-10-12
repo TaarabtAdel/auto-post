@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ui } from "@/lib/dashboard-ui";
@@ -9,6 +9,7 @@ import {
   DEFAULT_YOUTUBE_GEMINI_TEMPLATE,
   buildYouTubeGeminiPrompt,
 } from "@/lib/youtube-gemini-template";
+import { copyToClipboard } from "@/lib/copy-to-clipboard";
 import { normalizeYouTubeUrl } from "@/lib/youtube-url";
 import { parseCutRanges } from "@/lib/reel/cuts";
 import {
@@ -45,8 +46,8 @@ const STEPS = [
   "6. Plan & chạy AUTO",
 ] as const;
 
-async function copyText(text: string) {
-  await navigator.clipboard.writeText(text);
+async function copyText(text: string): Promise<boolean> {
+  return copyToClipboard(text);
 }
 
 function planLocked(c: AutoCampaignDto | null): boolean {
@@ -58,6 +59,7 @@ type AutoWizardProps = { initialCampaignId?: string | null };
 
 export function AutoWizard({ initialCampaignId = null }: AutoWizardProps) {
   const router = useRouter();
+  const promptTextareaRef = useRef<HTMLTextAreaElement>(null);
   const [step, setStep] = useState(0);
   const [campaign, setCampaign] = useState<AutoCampaignDto | null>(null);
   const [booting, setBooting] = useState(!!initialCampaignId);
@@ -342,10 +344,9 @@ export function AutoWizard({ initialCampaignId = null }: AutoWizardProps) {
     } catch {
       // giữ link gốc nếu không chuẩn hóa được
     }
-    try {
-      await copyText(url);
-    } catch {
-      setError("Không copy được — hãy copy link thủ công.");
+    const copied = await copyText(url);
+    if (!copied) {
+      setError("Không copy được — chọn link trong ô prompt / copy thủ công.");
       return;
     }
     setNote("Đã copy link video của plan.");
@@ -632,21 +633,40 @@ export function AutoWizard({ initialCampaignId = null }: AutoWizardProps) {
               className={ui.btnPrimary}
               disabled={!promptText || busy || locked}
               onClick={async () => {
-                try {
-                  await copyText(promptText);
+                setError("");
+                const copied = await copyText(promptText);
+                if (copied) {
                   setNote("Đã copy prompt — dán vào Gemini.");
                   alert("Đã copy prompt Gemini.");
-                  window.open("https://gemini.google.com/app", "_blank", "noopener,noreferrer");
-                } catch {
-                  setError("Không copy được — hãy copy prompt thủ công.");
+                } else {
+                  setNote(
+                    "Trình duyệt chặn copy tự động — bôi đen ô prompt bên dưới rồi Ctrl+C."
+                  );
+                  promptTextareaRef.current?.focus();
+                  promptTextareaRef.current?.select();
+                  alert(
+                    "Không copy tự động được (thường do site HTTP).\n\nÔ prompt đã được chọn — nhấn Ctrl+C (Cmd+C trên Mac), rồi dán vào Gemini."
+                  );
                 }
+                window.open(
+                  "https://gemini.google.com/app",
+                  "_blank",
+                  "noopener,noreferrer"
+                );
               }}
             >
               Copy prompt Gemini
             </button>
           </div>
           {promptText && (
-            <textarea readOnly value={promptText} rows={6} className={`${ui.textarea} text-xs`} />
+            <textarea
+              ref={promptTextareaRef}
+              readOnly
+              value={promptText}
+              rows={6}
+              className={`${ui.textarea} text-xs`}
+              aria-label="Prompt Gemini"
+            />
           )}
           <button
             type="button"
