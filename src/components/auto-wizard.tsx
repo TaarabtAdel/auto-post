@@ -632,8 +632,14 @@ export function AutoWizard({ initialCampaignId = null }: AutoWizardProps) {
               className={ui.btnPrimary}
               disabled={!promptText || busy || locked}
               onClick={async () => {
-                await copyText(promptText);
-                setNote("Đã copy prompt — dán vào Gemini.");
+                try {
+                  await copyText(promptText);
+                  setNote("Đã copy prompt — dán vào Gemini.");
+                  alert("Đã copy prompt Gemini.");
+                  window.open("https://gemini.google.com/app", "_blank", "noopener,noreferrer");
+                } catch {
+                  setError("Không copy được — hãy copy prompt thủ công.");
+                }
               }}
             >
               Copy prompt Gemini
