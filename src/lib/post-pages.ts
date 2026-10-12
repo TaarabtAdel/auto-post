@@ -155,31 +155,40 @@ export async function replacePostFacebookPages(
 
 export async function validateUserPageIds(
   userId: string,
-  pageIds: string[]
+  pageIds: string[],
+  options?: { requireActiveToken?: boolean }
 ): Promise<{ ok: true } | { ok: false; error: string }> {
+  const requireActiveToken = options?.requireActiveToken !== false;
   const unique = [...new Set(pageIds.filter(Boolean))];
   if (unique.length === 0) {
     return { ok: false, error: "Chọn ít nhất một Fanpage." };
   }
 
   const found = await db
-    .select({ id: facebookPage.id })
+    .select({ id: facebookPage.id, tokenStatus: facebookPage.tokenStatus })
     .from(facebookPage)
     .where(
-      and(
-        eq(facebookPage.userId, userId),
-        eq(facebookPage.tokenStatus, "active"),
-        inArray(facebookPage.id, unique)
-      )
+      and(eq(facebookPage.userId, userId), inArray(facebookPage.id, unique))
     );
 
   if (found.length !== unique.length) {
     return {
       ok: false,
-      error:
-        "Một hoặc nhiều Page không hợp lệ, không thuộc tài khoản hoặc token không active.",
+      error: "Một hoặc nhiều Page không hợp lệ hoặc không thuộc tài khoản.",
     };
   }
+
+  if (requireActiveToken) {
+    const inactive = found.filter((p) => p.tokenStatus !== "active");
+    if (inactive.length > 0) {
+      return {
+        ok: false,
+        error:
+          "Một hoặc nhiều Page token không active — dùng «Đăng thủ công» (lưu nháp) hoặc cập nhật token trên /pages.",
+      };
+    }
+  }
+
   return { ok: true };
 }
 

@@ -120,14 +120,18 @@ export async function PATCH(request: NextRequest, { params }: Params) {
   const updates: Record<string, unknown> = {};
 
   if (body.workspaceAppId !== undefined) {
-    const wsApp = await getWorkspaceAppForUser(
-      body.workspaceAppId.trim(),
-      session.user.id
-    );
-    if (!wsApp) {
-      return NextResponse.json({ error: "App không hợp lệ." }, { status: 400 });
+    if (body.workspaceAppId === null || body.workspaceAppId === "") {
+      updates.workspaceAppId = null;
+    } else {
+      const wsApp = await getWorkspaceAppForUser(
+        body.workspaceAppId.trim(),
+        session.user.id
+      );
+      if (!wsApp) {
+        return NextResponse.json({ error: "App không hợp lệ." }, { status: 400 });
+      }
+      updates.workspaceAppId = wsApp.id;
     }
-    updates.workspaceAppId = wsApp.id;
   }
 
   if (body.accessToken !== undefined) {

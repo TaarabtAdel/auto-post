@@ -166,10 +166,9 @@ export async function POST(request: NextRequest) {
   }
 
   if (pageIdsFromBody.length > 0) {
-    const validated = await validateUserPageIds(
-      session.user.id,
-      pageIdsFromBody
-    );
+    const validated = await validateUserPageIds(session.user.id, pageIdsFromBody, {
+      requireActiveToken: false,
+    });
     if (!validated.ok) {
       return NextResponse.json({ error: validated.error }, { status: 400 });
     }

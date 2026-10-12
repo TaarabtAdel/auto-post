@@ -483,6 +483,9 @@ export function PagesManager({
   const [assigningCategoryPageId, setAssigningCategoryPageId] = useState<
     string | null
   >(null);
+  const [assigningAppPageId, setAssigningAppPageId] = useState<string | null>(
+    null
+  );
   const [renewSuccess, setRenewSuccess] = useState("");
   const [renewingPageId, setRenewingPageId] = useState<string | null>(null);
   const [renewBatchRunning, setRenewBatchRunning] = useState(false);
@@ -588,6 +591,43 @@ export function PagesManager({
       setError("Lỗi kết nối.");
     } finally {
       setAssigningCategoryPageId(null);
+    }
+  }
+
+  async function assignPageApp(pageId: string, workspaceAppId: string | null) {
+    setAssigningAppPageId(pageId);
+    setError("");
+    try {
+      const res = await fetch(`/api/facebook-pages/${pageId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          workspaceAppId: workspaceAppId ?? "",
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error || "Không gán được App.");
+        return;
+      }
+      const app = workspaceAppId
+        ? apps.find((a) => a.id === workspaceAppId)
+        : null;
+      setPages((prev) =>
+        prev.map((p) =>
+          p.id === pageId
+            ? {
+                ...p,
+                workspaceAppId,
+                workspaceAppName: app?.name ?? null,
+              }
+            : p
+        )
+      );
+    } catch {
+      setError("Lỗi kết nối.");
+    } finally {
+      setAssigningAppPageId(null);
     }
   }
 
@@ -1439,10 +1479,24 @@ export function PagesManager({
                           ))}
                         </select>
                       </td>
-                      <td className="px-4 py-3 text-gray-700 max-w-[140px] truncate">
-                        {page.workspaceAppName ?? (
-                          <span className="text-amber-600 text-xs">Chưa gán</span>
-                        )}
+                      <td className="px-4 py-3">
+                        <select
+                          value={page.workspaceAppId ?? ""}
+                          disabled={assigningAppPageId === page.id}
+                          onChange={(e) => {
+                            const v = e.target.value;
+                            void assignPageApp(page.id, v ? v : null);
+                          }}
+                          className={`${ui.select} w-full max-w-[160px] text-xs py-1.5 disabled:opacity-50`}
+                          title="Gán Facebook App cho Page"
+                        >
+                          <option value="">— Chưa gán —</option>
+                          {apps.map((a) => (
+                            <option key={a.id} value={a.id}>
+                              {a.name}
+                            </option>
+                          ))}
+                        </select>
                       </td>
                       <td className="px-4 py-3 text-center align-middle">
                         <div className="font-semibold text-green-700 leading-tight">

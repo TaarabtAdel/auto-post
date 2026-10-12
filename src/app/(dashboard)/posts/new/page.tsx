@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { PageCategorySelectBar } from "@/components/page-category-select-bar";
 import { PageHeader } from "@/components/page-header";
@@ -55,6 +55,7 @@ export default function NewPostPage() {
   const [driveImportType, setDriveImportType] = useState<"text" | "media">("text");
   const [scheduledAt, setScheduledAt] = useState("");
   const [scheduling, setScheduling] = useState(false);
+  const [postMode, setPostMode] = useState<"queue" | "manual">("queue");
 
   useEffect(() => {
     try {
@@ -90,20 +91,27 @@ export default function NewPostPage() {
       .catch(() => {});
   }, []);
 
-  const appPages = allPages.filter(
-    (p) =>
-      p.tokenStatus === "active" &&
-      p.workspaceAppId === workspaceAppId
+  const queuePages = useMemo(
+    () =>
+      allPages.filter(
+        (p) =>
+          p.tokenStatus === "active" && p.workspaceAppId === workspaceAppId
+      ),
+    [allPages, workspaceAppId]
   );
 
+  const manualPages = useMemo(() => allPages, [allPages]);
+
+  const pickerPages = postMode === "manual" ? manualPages : queuePages;
+
   useEffect(() => {
-    setSelectedPageIds(new Set(appPages.map((p) => p.id)));
-  }, [workspaceAppId, allPages]);
+    setSelectedPageIds(new Set(pickerPages.map((p) => p.id)));
+  }, [pickerPages, postMode, workspaceAppId]);
 
   const allSelected =
-    appPages.length > 0 && selectedPageIds.size === appPages.length;
+    pickerPages.length > 0 && selectedPageIds.size === pickerPages.length;
   const someSelected =
-    selectedPageIds.size > 0 && selectedPageIds.size < appPages.length;
+    selectedPageIds.size > 0 && selectedPageIds.size < pickerPages.length;
 
   function togglePage(id: string) {
     setSelectedPageIds((prev) => {
@@ -118,14 +126,14 @@ export default function NewPostPage() {
     if (allSelected) {
       setSelectedPageIds(new Set());
     } else {
-      setSelectedPageIds(new Set(appPages.map((p) => p.id)));
+      setSelectedPageIds(new Set(pickerPages.map((p) => p.id)));
     }
   }
 
   function invertPageSelection() {
     setSelectedPageIds((prev) => {
       const next = new Set<string>();
-      for (const p of appPages) {
+      for (const p of pickerPages) {
         if (!prev.has(p.id)) next.add(p.id);
       }
       return next;
@@ -258,6 +266,10 @@ export default function NewPostPage() {
       setError("Vui lòng nhập nội dung hoặc thêm media.");
       return;
     }
+    if (selectedPageIds.size === 0) {
+      setError("Chọn ít nhất một Fanpage.");
+      return;
+    }
 
     setSaving(true);
     setError("");
@@ -347,13 +359,21 @@ export default function NewPostPage() {
     await submitToQueue(new Date().toISOString());
   }
 
-  const canPublish = apps.length > 0 && selectedPageIds.size > 0;
+  const canPublish =
+    postMode === "queue" &&
+    apps.length > 0 &&
+    selectedPageIds.size > 0 &&
+    queuePages.length > 0;
 
   return (
     <div className="space-y-6">
       <PageHeader
         title="Tạo bài viết mới"
-        description='Hàng đợi bắt đầu từ "Hẹn giờ đăng"; cron chạy mỗi phút, đăng lần lượt từng Fanpage.'
+        description={
+          postMode === "manual"
+            ? "Lưu nháp rồi vào /posts → «Đăng» từng Page, copy nội dung/video và tick «Đã đăng». Không cần token active."
+            : 'Hàng đợi bắt đầu từ "Hẹn giờ đăng"; cron chạy mỗi phút, đăng lần lượt từng Fanpage (Page cách nhau theo cài đặt trên /posts).'
+        }
       />
 
       {error && <div className={ui.alertError}>{error}</div>}
@@ -361,39 +381,77 @@ export default function NewPostPage() {
       <div className="space-y-6">
         <div className={`${ui.card} ${ui.cardPad} space-y-4`}>
           <label className="block text-sm font-medium text-gray-700">
+            Cách đăng
+          </label>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => setPostMode("queue")}
+              className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                postMode === "queue"
+                  ? "bg-blue-600 text-white"
+                  : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+              }`}
+            >
+              Queue (token active)
+            </button>
+            <button
+              type="button"
+              onClick={() => setPostMode("manual")}
+              className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                postMode === "manual"
+                  ? "bg-violet-600 text-white"
+                  : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+              }`}
+            >
+              Đăng thủ công
+            </button>
+          </div>
+          {postMode === "manual" ? (
+            <p className={`text-xs ${ui.hint}`}>
+              Chọn Page (kể cả <strong>Chưa token</strong>). Chỉ «Lưu nháp» — không vào queue. Sau
+              đó mở từng Page trên Facebook, dùng modal trên /posts.
+            </p>
+          ) : null}
+
+          <label className="block text-sm font-medium text-gray-700 pt-2">
             Đích đăng
           </label>
 
-          {apps.length === 0 ? (
+          {apps.length === 0 && postMode === "queue" ? (
             <p className="text-sm text-amber-800">
               Chưa có Facebook App.{" "}
               <a href="/apps" className="text-blue-600 hover:underline">
                 Tạo App
               </a>{" "}
-              trước.
+              trước — hoặc chọn «Đăng thủ công».
             </p>
           ) : (
             <>
-              <div>
-                <label className="block text-xs text-gray-500 mb-1">
-                  Facebook App
-                </label>
-                <select
-                  value={workspaceAppId}
-                  onChange={(e) => setWorkspaceAppId(e.target.value)}
-                  className={`${ui.select} w-full max-w-md`}
-                >
-                  {apps.map((a) => (
-                    <option key={a.id} value={a.id}>
-                      {a.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
+              {postMode === "queue" ? (
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">
+                    Facebook App
+                  </label>
+                  <select
+                    value={workspaceAppId}
+                    onChange={(e) => setWorkspaceAppId(e.target.value)}
+                    className={`${ui.select} w-full max-w-md`}
+                  >
+                    {apps.map((a) => (
+                      <option key={a.id} value={a.id}>
+                        {a.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              ) : null}
 
-              {appPages.length === 0 ? (
+              {pickerPages.length === 0 ? (
                 <p className="text-sm text-gray-500">
-                  App này chưa có Page active.{" "}
+                  {postMode === "queue"
+                    ? "App này chưa có Page active. "
+                    : "Chưa có Page. "}
                   <a href="/pages" className="text-blue-600 hover:underline">
                     Kết nối Page
                   </a>
@@ -409,14 +467,16 @@ export default function NewPostPage() {
                     Đảo ngược
                   </button>
                   <span className="text-xs text-gray-500 self-center">
-                    {selectedPageIds.size}/{appPages.length} Fanpage
+                    {selectedPageIds.size}/{pickerPages.length} Fanpage
                   </span>
                 </div>
-                <PageCategorySelectBar
-                  pages={appPages}
-                  selected={selectedPageIds}
-                  onSelectedChange={setSelectedPageIds}
-                />
+                {postMode === "queue" ? (
+                  <PageCategorySelectBar
+                    pages={pickerPages}
+                    selected={selectedPageIds}
+                    onSelectedChange={setSelectedPageIds}
+                  />
+                ) : null}
                 <div className="border border-gray-100 rounded-lg divide-y divide-gray-100">
                   <label className="flex items-center gap-3 px-4 py-3 bg-gray-50 cursor-pointer">
                     <input
@@ -429,10 +489,10 @@ export default function NewPostPage() {
                       className="rounded border-gray-300"
                     />
                     <span className="text-sm font-medium text-gray-800">
-                      Chọn tất cả ({appPages.length} Fanpage)
+                      Chọn tất cả ({pickerPages.length} Fanpage)
                     </span>
                   </label>
-                  {appPages.map((p) => (
+                  {pickerPages.map((p) => (
                     <label
                       key={p.id}
                       className="flex items-center gap-3 px-4 py-3 cursor-pointer hover:bg-gray-50/80"
@@ -457,11 +517,14 @@ export default function NewPostPage() {
                       )}
                       <span className="text-sm text-gray-900 flex-1 min-w-0">
                         {p.pageName}
-                        {p.categoryName ? (
-                          <span className="block text-[10px] text-gray-400 truncate">
-                            {p.categoryName}
-                          </span>
-                        ) : null}
+                        <span className="block text-[10px] text-gray-400 truncate">
+                          {p.tokenStatus === "pending"
+                            ? "Chưa token"
+                            : p.tokenStatus === "active"
+                              ? "Token OK"
+                              : p.tokenStatus}
+                          {p.categoryName ? ` · ${p.categoryName}` : ""}
+                        </span>
                       </span>
                     </label>
                   ))}
@@ -469,8 +532,8 @@ export default function NewPostPage() {
                 </>
               )}
               <p className="text-xs text-gray-500">
-                Đã chọn {selectedPageIds.size} / {appPages.length} Fanpage trong
-                App này.
+                Đã chọn {selectedPageIds.size} / {pickerPages.length} Fanpage
+                {postMode === "queue" ? " trong App này" : ""}.
               </p>
             </>
           )}
@@ -601,47 +664,61 @@ export default function NewPostPage() {
           </FileDropZone>
         </div>
 
-        <div className={`${ui.card} ${ui.cardPad}`}>
-          <label className="block text-sm font-medium text-gray-700 mb-2">
-            Hẹn giờ đăng
-          </label>
-          <input
-            type="datetime-local"
-            value={scheduledAt}
-            onChange={(e) => setScheduledAt(e.target.value)}
-            min={new Date().toISOString().slice(0, 16)}
-            className={`${ui.input} w-full max-w-md`}
-          />
-          <p className="mt-1 text-xs text-gray-500">
-            Queue chỉ chạy từ thời điểm này. Mỗi Page trong batch cách nhau ~1 phút (cron).
-          </p>
-        </div>
+        {postMode === "queue" ? (
+          <div className={`${ui.card} ${ui.cardPad}`}>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Hẹn giờ đăng
+            </label>
+            <input
+              type="datetime-local"
+              value={scheduledAt}
+              onChange={(e) => setScheduledAt(e.target.value)}
+              min={new Date().toISOString().slice(0, 16)}
+              className={`${ui.input} w-full max-w-md`}
+            />
+            <p className="mt-1 text-xs text-gray-500">
+              Queue chỉ chạy từ thời điểm này. Khoảng cách giữa các Page: cài trên /posts.
+            </p>
+          </div>
+        ) : null}
 
         <div className="flex gap-3 flex-wrap">
           <button
             type="button"
             onClick={handleSaveDraft}
             disabled={saving || scheduling}
-            className="inline-flex items-center justify-center bg-gray-600 text-white text-sm font-medium px-6 py-2 rounded-lg hover:bg-gray-700 disabled:opacity-50 transition-colors"
+            className={
+              postMode === "manual"
+                ? ui.btnPrimary
+                : "inline-flex items-center justify-center bg-gray-600 text-white text-sm font-medium px-6 py-2 rounded-lg hover:bg-gray-700 disabled:opacity-50 transition-colors"
+            }
           >
-            {saving ? "Đang lưu..." : "Lưu nháp"}
+            {saving
+              ? "Đang lưu..."
+              : postMode === "manual"
+                ? "Lưu — đăng thủ công trên /posts"
+                : "Lưu nháp"}
           </button>
-          <button
-            type="button"
-            onClick={handleSchedule}
-            disabled={saving || scheduling || !scheduledAt || !canPublish}
-            className={ui.btnPrimary}
-          >
-            {scheduling ? "Đang xử lý..." : "Hẹn giờ đăng (queue)"}
-          </button>
-          <button
-            type="button"
-            onClick={handlePostNow}
-            disabled={saving || scheduling || !canPublish}
-            className={ui.btnSuccess}
-          >
-            Đăng ngay (vào queue)
-          </button>
+          {postMode === "queue" ? (
+            <>
+              <button
+                type="button"
+                onClick={handleSchedule}
+                disabled={saving || scheduling || !scheduledAt || !canPublish}
+                className={ui.btnPrimary}
+              >
+                {scheduling ? "Đang xử lý..." : "Hẹn giờ đăng (queue)"}
+              </button>
+              <button
+                type="button"
+                onClick={handlePostNow}
+                disabled={saving || scheduling || !canPublish}
+                className={ui.btnSuccess}
+              >
+                Đăng ngay (vào queue)
+              </button>
+            </>
+          ) : null}
           <button
             type="button"
             onClick={() => router.push("/posts")}

@@ -20,10 +20,11 @@
 # production
 /build
 
-# local database (WAL mode creates -wal / -shm)
+# local database (WAL mode creates -wal / -shm) — never commit or deploy via git
 /sqlite.db
-/sqlite.db-wal
-/sqlite.db-shm
+/sqlite.db-*
+sqlite.db
+sqlite.db-*
 
 # cursor — thông tin VPS/SSH local (không đẩy lên remote)
 .cursor/rules/vps-gdata.mdc
