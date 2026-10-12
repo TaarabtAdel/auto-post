@@ -7,6 +7,7 @@ import { getFacebookPageUrl, getFacebookPostUrl } from "@/lib/facebook-page-url"
 import { describeDeleteImpact } from "@/lib/post-delete-impact";
 import { ui } from "@/lib/dashboard-ui";
 import { formatInAppTimezone } from "@/lib/scheduled-at";
+import { copyToClipboard } from "@/lib/copy-to-clipboard";
 
 interface PostPageMeta {
   facebookPageId: string;
@@ -202,16 +203,23 @@ function CopyBlock({
   label: string;
   value: string;
 }) {
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [copied, setCopied] = useState(false);
+  const [hint, setHint] = useState("");
+
   async function copy() {
-    try {
-      await navigator.clipboard.writeText(value);
+    setHint("");
+    const ok = await copyToClipboard(value);
+    if (ok) {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
-    } catch {
-      /* ignore */
+      return;
     }
+    textareaRef.current?.focus();
+    textareaRef.current?.select();
+    setHint("Không copy tự động — nội dung đã chọn, nhấn Ctrl+C (Cmd+C).");
   }
+
   return (
     <div>
       <div className="flex items-center justify-between gap-2 mb-1">
@@ -224,11 +232,16 @@ function CopyBlock({
           {copied ? "Đã copy" : "Copy"}
         </button>
       </div>
+      {hint ? (
+        <p className="text-xs text-amber-700 mb-1">{hint}</p>
+      ) : null}
       <textarea
+        ref={textareaRef}
         readOnly
         value={value}
         rows={Math.min(8, Math.max(3, value.split("\n").length))}
         className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 bg-gray-50 resize-y"
+        onFocus={(e) => e.currentTarget.select()}
       />
     </div>
   );
