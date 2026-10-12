@@ -66,7 +66,8 @@ echo.
 echo   Dev:        npm run dev
 echo   URL:        http://localhost:3000  (hoac PORT trong .env)
 echo.
-echo   Production local: npm run build ^&^& npm start
+echo   Cap nhat code:    update-code.bat
+echo   Production local: start.bat  (build truoc bang update-code.bat)
 echo   Sua .env neu can: BETTER_AUTH_URL, Facebook, ENCRYPTION_KEY
 echo.
 endlocal
