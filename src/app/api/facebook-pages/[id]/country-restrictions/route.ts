@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { apiUnauthorized } from "@/lib/api-unauthorized";
 import { getAppSession } from "@/lib/app-session";
 import { headers } from "next/headers";
 import { db } from "@/lib/db";
@@ -32,6 +33,7 @@ async function getOwnedPageRow(id: string, userId: string) {
 /** GET — đọc giới hạn quốc gia từ Facebook */
 export async function GET(_request: NextRequest, { params }: Params) {
   const session = await getAppSession({ headers: await headers() });
+  if (!session) return apiUnauthorized();
 
   const { id } = await params;
   const row = await getOwnedPageRow(id, session.user.id);
@@ -69,6 +71,7 @@ export async function GET(_request: NextRequest, { params }: Params) {
  */
 export async function PATCH(request: NextRequest, { params }: Params) {
   const session = await getAppSession({ headers: await headers() });
+  if (!session) return apiUnauthorized();
 
   const { id } = await params;
   const row = await getOwnedPageRow(id, session.user.id);

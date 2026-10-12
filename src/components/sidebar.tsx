@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
+import { SignOutButton } from "@/components/sign-out-button";
 
 interface SidebarProps {
   userName: string;
@@ -117,6 +118,7 @@ export function Sidebar({ userName }: SidebarProps) {
               <p className="text-sm font-medium truncate">{userName}</p>
             </div>
           </div>
+          <SignOutButton />
         </div>
       </aside>
     </>

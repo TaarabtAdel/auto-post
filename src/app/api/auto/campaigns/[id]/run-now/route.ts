@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { apiUnauthorized } from "@/lib/api-unauthorized";
 import { getAppSession } from "@/lib/app-session";
 import { headers } from "next/headers";
 import { autoCampaignToDto } from "@/lib/auto-campaign-api";
@@ -12,6 +13,7 @@ type Params = { params: Promise<{ id: string }> };
 
 export async function POST(_request: NextRequest, { params }: Params) {
   const session = await getAppSession({ headers: await headers() });
+  if (!session) return apiUnauthorized();
   const { id } = await params;
 
   const result = await runPlannedAutoCampaign(id, session.user.id, "manual");

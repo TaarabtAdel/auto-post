@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { apiUnauthorized } from "@/lib/api-unauthorized";
 import { getAppSession } from "@/lib/app-session";
 import { headers } from "next/headers";
 import { db } from "@/lib/db";
@@ -29,6 +30,7 @@ export async function GET() {
   const session = await getAppSession({
     headers: await headers(),
   });
+  if (!session) return apiUnauthorized();
 
   const posts = await db
     .select({
@@ -107,6 +109,7 @@ export async function POST(request: NextRequest) {
   const session = await getAppSession({
     headers: await headers(),
   });
+  if (!session) return apiUnauthorized();
 
   // Rate limit: 30 posts / min / user
   const limited = checkRateLimit(postsLimiter, session.user.id);

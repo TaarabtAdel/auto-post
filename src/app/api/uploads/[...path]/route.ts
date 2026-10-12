@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { apiUnauthorized } from "@/lib/api-unauthorized";
 import { readFile, stat } from "fs/promises";
 import { resolve, relative } from "path";
 import { normalizeUploadRelativePath } from "@/lib/upload-media-url";
@@ -36,6 +37,7 @@ export async function GET(_request: NextRequest, { params }: Params) {
   const session = await getAppSession({
     headers: await headers(),
   });
+  if (!session) return apiUnauthorized();
 
   const requestedPath = normalizeUploadRelativePath(pathSegments.join("/"));
   if (!requestedPath || requestedPath.includes("..")) {

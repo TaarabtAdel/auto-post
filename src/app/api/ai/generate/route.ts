@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { apiUnauthorized } from "@/lib/api-unauthorized";
 import { getAppSession } from "@/lib/app-session";
 import { headers } from "next/headers";
 import { generatePostContent, downloadImage } from "@/lib/ai";
@@ -17,6 +18,7 @@ export async function POST(request: NextRequest) {
   const session = await getAppSession({
     headers: await headers(),
   });
+  if (!session) return apiUnauthorized();
 
   // Rate limit: 10 AI requests / min / user
   const limited = checkLimit(aiLimiter, session.user.id);

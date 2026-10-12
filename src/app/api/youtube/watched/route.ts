@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { apiUnauthorized } from "@/lib/api-unauthorized";
 import { getAppSession } from "@/lib/app-session";
 import { headers } from "next/headers";
 import { db, sqlite } from "@/lib/db";
@@ -23,11 +24,13 @@ async function requireUser() {
   const session = await getAppSession({
     headers: await headers(),
   });
+  if (!session) return null;
   return session.user;
 }
 
 export async function GET() {
   const user = await requireUser();
+  if (!user) return apiUnauthorized();
   ensureTable();
 
   const rows = await db
@@ -40,6 +43,7 @@ export async function GET() {
 
 export async function POST(request: NextRequest) {
   const user = await requireUser();
+  if (!user) return apiUnauthorized();
   ensureTable();
 
   let body: { videoId?: string; videoIds?: string[]; watched?: boolean };

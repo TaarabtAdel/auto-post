@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { apiUnauthorized } from "@/lib/api-unauthorized";
 import { getAppSession } from "@/lib/app-session";
 import { headers } from "next/headers";
 import { db } from "@/lib/db";
@@ -47,6 +48,7 @@ export async function GET(_request: NextRequest, { params }: Params) {
   const session = await getAppSession({
     headers: await headers(),
   });
+  if (!session) return apiUnauthorized();
 
   const { id } = await params;
   const p = await getOwnedPost(id, session.user.id);
@@ -96,6 +98,7 @@ export async function PATCH(request: NextRequest, { params }: Params) {
   const session = await getAppSession({
     headers: await headers(),
   });
+  if (!session) return apiUnauthorized();
 
   const { id } = await params;
   const p = await getOwnedPost(id, session.user.id);
@@ -276,6 +279,7 @@ export async function DELETE(_request: NextRequest, { params }: Params) {
   const session = await getAppSession({
     headers: await headers(),
   });
+  if (!session) return apiUnauthorized();
 
   const { id } = await params;
   const p = await getOwnedPost(id, session.user.id);

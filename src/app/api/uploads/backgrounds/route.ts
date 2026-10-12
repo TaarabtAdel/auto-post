@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { apiUnauthorized } from "@/lib/api-unauthorized";
 import { getAppSession } from "@/lib/app-session";
 import { headers } from "next/headers";
 import {
@@ -9,6 +10,7 @@ import { uploadMediaPublicUrl } from "@/lib/upload-media-url";
 
 export async function GET() {
   const session = await getAppSession({ headers: await headers() });
+  if (!session) return apiUnauthorized();
   const files = await listUserBackgroundImages(session.user.id);
   return NextResponse.json({
     backgrounds: files.map((f) => ({
@@ -20,6 +22,7 @@ export async function GET() {
 
 export async function DELETE(request: NextRequest) {
   const session = await getAppSession({ headers: await headers() });
+  if (!session) return apiUnauthorized();
 
   let body: { filePath?: string };
   try {

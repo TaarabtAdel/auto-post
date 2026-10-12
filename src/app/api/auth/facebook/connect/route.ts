@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { apiUnauthorized } from "@/lib/api-unauthorized";
 import { getAppSession } from "@/lib/app-session";
 import { headers } from "next/headers";
 import { buildOAuthUrl } from "@/lib/facebook";
@@ -14,6 +15,7 @@ export async function GET(request: NextRequest) {
   const session = await getAppSession({
     headers: await headers(),
   });
+  if (!session) return apiUnauthorized();
 
   const workspaceAppId = request.nextUrl.searchParams.get("workspaceAppId")?.trim();
   if (!workspaceAppId) {

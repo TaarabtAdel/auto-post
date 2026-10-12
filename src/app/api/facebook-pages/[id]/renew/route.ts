@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { apiUnauthorized } from "@/lib/api-unauthorized";
 import { getAppSession } from "@/lib/app-session";
 import { headers } from "next/headers";
 import { renewPageTokenFromStored, renewPageTokensFromUserToken } from "@/lib/renew-page-tokens";
@@ -12,6 +13,7 @@ type Params = { params: Promise<{ id: string }> };
  */
 export async function POST(request: NextRequest, { params }: Params) {
   const session = await getAppSession({ headers: await headers() });
+  if (!session) return apiUnauthorized();
 
   const { id } = await params;
 

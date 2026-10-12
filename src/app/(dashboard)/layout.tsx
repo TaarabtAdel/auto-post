@@ -1,3 +1,4 @@
+import { redirect } from "next/navigation";
 import { getAppSession } from "@/lib/app-session";
 import { Sidebar } from "@/components/sidebar";
 
@@ -7,6 +8,9 @@ export default async function DashboardLayout({
   children: React.ReactNode;
 }) {
   const session = await getAppSession();
+  if (!session) {
+    redirect("/login");
+  }
 
   return (
     <div className="min-h-screen bg-gray-50">

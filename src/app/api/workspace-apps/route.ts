@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { apiUnauthorized } from "@/lib/api-unauthorized";
 import { getAppSession } from "@/lib/app-session";
 import { headers } from "next/headers";
 import { db } from "@/lib/db";
@@ -13,6 +14,7 @@ import { randomBytes } from "crypto";
 
 export async function GET() {
   const session = await getAppSession({ headers: await headers() });
+  if (!session) return apiUnauthorized();
 
   const apps = await listWorkspaceApps(session.user.id);
   return NextResponse.json({ apps });
@@ -20,6 +22,7 @@ export async function GET() {
 
 export async function POST(request: NextRequest) {
   const session = await getAppSession({ headers: await headers() });
+  if (!session) return apiUnauthorized();
 
   let body: {
     name?: string;

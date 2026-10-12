@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { apiUnauthorized } from "@/lib/api-unauthorized";
 import { getAppSession } from "@/lib/app-session";
 import { headers } from "next/headers";
 import { join, relative } from "path";
@@ -23,11 +24,13 @@ async function requireUser() {
   const session = await getAppSession({
     headers: await headers(),
   });
+  if (!session) return null;
   return session.user;
 }
 
 export async function GET() {
   const user = await requireUser();
+  if (!user) return apiUnauthorized();
 
   const files = await listYouTubeDownloads(user.id);
   return NextResponse.json({
@@ -52,6 +55,7 @@ export async function GET() {
  */
 export async function POST(request: NextRequest) {
   const user = await requireUser();
+  if (!user) return apiUnauthorized();
 
   const limited = checkRateLimit(youtubeLimiter, user.id);
   if (limited) return limited;

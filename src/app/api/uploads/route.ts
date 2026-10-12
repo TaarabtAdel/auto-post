@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { apiUnauthorized } from "@/lib/api-unauthorized";
 import { getAppSession } from "@/lib/app-session";
 import { headers } from "next/headers";
 import { writeFile, mkdir } from "fs/promises";
@@ -65,6 +66,7 @@ export async function POST(request: NextRequest) {
   const session = await getAppSession({
     headers: await headers(),
   });
+  if (!session) return apiUnauthorized();
 
   // Rate limit: 20 uploads / min / user
   const limited = checkRateLimit(uploadLimiter, session.user.id);

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { apiUnauthorized } from "@/lib/api-unauthorized";
 import { getAppSession } from "@/lib/app-session";
 import { headers } from "next/headers";
 import { db } from "@/lib/db";
@@ -21,6 +22,7 @@ const TRACKED_SCOPES = [
  */
 export async function GET(_request: NextRequest, { params }: Params) {
   const session = await getAppSession({ headers: await headers() });
+  if (!session) return apiUnauthorized();
 
   const { id } = await params;
 

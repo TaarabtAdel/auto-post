@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { apiUnauthorized } from "@/lib/api-unauthorized";
 import { getAppSession } from "@/lib/app-session";
 import { headers } from "next/headers";
 import { db } from "@/lib/db";
@@ -16,6 +17,7 @@ type RouteContext = { params: Promise<{ id: string }> };
 
 export async function GET(_request: NextRequest, context: RouteContext) {
   const session = await getAppSession({ headers: await headers() });
+  if (!session) return apiUnauthorized();
 
   const { id } = await context.params;
   const app = await getWorkspaceAppForUser(id, session.user.id);
@@ -38,6 +40,7 @@ export async function GET(_request: NextRequest, context: RouteContext) {
 
 export async function PATCH(request: NextRequest, context: RouteContext) {
   const session = await getAppSession({ headers: await headers() });
+  if (!session) return apiUnauthorized();
 
   const { id } = await context.params;
   const existing = await getWorkspaceAppForUser(id, session.user.id);
@@ -115,6 +118,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
 
 export async function DELETE(_request: NextRequest, context: RouteContext) {
   const session = await getAppSession({ headers: await headers() });
+  if (!session) return apiUnauthorized();
 
   const { id } = await context.params;
   const existing = await getWorkspaceAppForUser(id, session.user.id);

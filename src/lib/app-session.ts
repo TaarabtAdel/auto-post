@@ -1,5 +1,6 @@
 import { headers } from "next/headers";
 import { ensureLocalUser } from "@/lib/local-user";
+import { isAuthBypassEnabled } from "@/lib/auth-bypass";
 
 /** Session shape used across dashboard + API (Better Auth compatible). */
 export type AppSession = {
@@ -22,7 +23,9 @@ export type AppSession = {
   };
 };
 
-function localSessionFromUser(u: Awaited<ReturnType<typeof ensureLocalUser>>): AppSession {
+function localSessionFromUser(
+  u: Awaited<ReturnType<typeof ensureLocalUser>>
+): AppSession {
   return {
     session: {
       id: "local-bypass",
@@ -47,13 +50,19 @@ function localSessionFromUser(u: Awaited<ReturnType<typeof ensureLocalUser>>): A
 type GetSessionOpts = { headers: Headers };
 
 /**
- * Luôn trả session — không cần đăng nhập (single-user local / Docker).
+ * Session đăng nhập Better Auth. Trả null nếu chưa login (trừ AUTH_BYPASS=1).
  */
-export async function getAppSession(opts?: GetSessionOpts): Promise<AppSession> {
+export async function getAppSession(
+  opts?: GetSessionOpts
+): Promise<AppSession | null> {
+  if (isAuthBypassEnabled()) {
+    const u = await ensureLocalUser();
+    return localSessionFromUser(u);
+  }
+
   const { auth } = await import("@/lib/auth");
   const hdrs = opts?.headers ?? (await headers());
   const session = await auth.api.getSession({ headers: hdrs });
-  if (session) return session as AppSession;
-  const u = await ensureLocalUser();
-  return localSessionFromUser(u);
+  if (!session) return null;
+  return session as AppSession;
 }

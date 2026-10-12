@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { apiUnauthorized } from "@/lib/api-unauthorized";
 import { getAppSession } from "@/lib/app-session";
 import { headers } from "next/headers";
 import { db } from "@/lib/db";
@@ -25,6 +26,7 @@ function trimNullable(value: string | null | undefined): string | null {
 
 export async function GET(_request: NextRequest, { params }: Params) {
   const session = await getAppSession({ headers: await headers() });
+  if (!session) return apiUnauthorized();
   const { id } = await params;
   const row = await getOwnedCampaign(id, session.user.id);
   if (!row) {
@@ -35,6 +37,7 @@ export async function GET(_request: NextRequest, { params }: Params) {
 
 export async function PATCH(request: NextRequest, { params }: Params) {
   const session = await getAppSession({ headers: await headers() });
+  if (!session) return apiUnauthorized();
   const { id } = await params;
   const row = await getOwnedCampaign(id, session.user.id);
   if (!row) {
@@ -133,6 +136,7 @@ export async function PATCH(request: NextRequest, { params }: Params) {
 
 export async function DELETE(_request: NextRequest, { params }: Params) {
   const session = await getAppSession({ headers: await headers() });
+  if (!session) return apiUnauthorized();
   const { id } = await params;
 
   try {

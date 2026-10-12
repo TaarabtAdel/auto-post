@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { apiUnauthorized } from "@/lib/api-unauthorized";
 import { getAppSession } from "@/lib/app-session";
 import { headers } from "next/headers";
 import { db } from "@/lib/db";
@@ -14,6 +15,7 @@ import {
 
 export async function GET() {
   const session = await getAppSession({ headers: await headers() });
+  if (!session) return apiUnauthorized();
   const rows = await db
     .select()
     .from(autoCampaign)
@@ -25,6 +27,7 @@ export async function GET() {
 
 export async function POST(request: NextRequest) {
   const session = await getAppSession({ headers: await headers() });
+  if (!session) return apiUnauthorized();
 
   let body: {
     name?: string;

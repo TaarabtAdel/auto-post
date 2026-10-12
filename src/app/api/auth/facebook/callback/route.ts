@@ -22,6 +22,14 @@ export async function GET(request: NextRequest) {
   const session = await getAppSession({
     headers: await headers(),
   });
+  if (!session) {
+    const baseUrl =
+      process.env.BETTER_AUTH_URL ||
+      `http://localhost:${process.env.PORT || "3100"}`;
+    return NextResponse.redirect(
+      `${baseUrl}/login?error=${encodeURIComponent("Phiên đăng nhập hết hạn — hãy đăng nhập rồi kết nối Facebook lại.")}`
+    );
+  }
 
   const searchParams = request.nextUrl.searchParams;
   const code = searchParams.get("code");

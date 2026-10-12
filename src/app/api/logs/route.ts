@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAppSession } from "@/lib/app-session";
+import { apiUnauthorized } from "@/lib/api-unauthorized";
 import { headers } from "next/headers";
 import {
   querySystemLogs,
@@ -14,7 +15,8 @@ const CATEGORIES = new Set<SystemLogCategory | "all">([
 ]);
 
 export async function GET(request: NextRequest) {
-  await getAppSession({ headers: await headers() });
+  const session = await getAppSession({ headers: await headers() });
+  if (!session) return apiUnauthorized();
 
   const sp = request.nextUrl.searchParams;
   const limitRaw = Number(sp.get("limit") ?? "200");

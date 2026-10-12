@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { apiUnauthorized } from "@/lib/api-unauthorized";
 import { getAppSession } from "@/lib/app-session";
 import { headers } from "next/headers";
 import {
@@ -10,6 +11,7 @@ type Params = { params: Promise<{ id: string }> };
 
 export async function PATCH(request: NextRequest, { params }: Params) {
   const session = await getAppSession({ headers: await headers() });
+  if (!session) return apiUnauthorized();
   const { id } = await params;
 
   let body: { name?: string; sortOrder?: number };
@@ -29,6 +31,7 @@ export async function PATCH(request: NextRequest, { params }: Params) {
 
 export async function DELETE(_request: NextRequest, { params }: Params) {
   const session = await getAppSession({ headers: await headers() });
+  if (!session) return apiUnauthorized();
   const { id } = await params;
 
   const result = await deletePageCategory(session.user.id, id);

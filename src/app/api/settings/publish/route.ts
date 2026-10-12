@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAppSession } from "@/lib/app-session";
+import { apiUnauthorized } from "@/lib/api-unauthorized";
 import { headers } from "next/headers";
 import {
   getPublishPageIntervalMinutes,
@@ -7,14 +8,16 @@ import {
 } from "@/lib/publish-settings";
 
 export async function GET() {
-  await getAppSession({ headers: await headers() });
+  const session = await getAppSession({ headers: await headers() });
+  if (!session) return apiUnauthorized();
   return NextResponse.json({
     pageIntervalMinutes: getPublishPageIntervalMinutes(),
   });
 }
 
 export async function PATCH(request: NextRequest) {
-  await getAppSession({ headers: await headers() });
+  const session = await getAppSession({ headers: await headers() });
+  if (!session) return apiUnauthorized();
 
   let body: { pageIntervalMinutes?: number };
   try {
