@@ -2,7 +2,11 @@
 
 import { useState, useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
-import { PageCategorySelectBar } from "@/components/page-category-select-bar";
+import {
+  FanpageAppPicker,
+  filterPagesForApp,
+  type PageOption,
+} from "@/components/fanpage-app-picker";
 import { PageHeader } from "@/components/page-header";
 import { ui } from "@/lib/dashboard-ui";
 import { MediaThumbList } from "@/components/media-thumb-list";
@@ -19,16 +23,6 @@ interface MediaFile {
   url: string;
 }
 
-interface FacebookPageOption {
-  id: string;
-  pageName: string;
-  pageAvatar: string | null;
-  tokenStatus: string;
-  workspaceAppId: string | null;
-  categoryId: string | null;
-  categoryName: string | null;
-}
-
 interface AppOption {
   id: string;
   name: string;
@@ -40,7 +34,7 @@ export default function NewPostPage() {
   const [firstComment, setFirstComment] = useState("");
   const [apps, setApps] = useState<AppOption[]>([]);
   const [workspaceAppId, setWorkspaceAppId] = useState("");
-  const [allPages, setAllPages] = useState<FacebookPageOption[]>([]);
+  const [allPages, setAllPages] = useState<PageOption[]>([]);
   const [selectedPageIds, setSelectedPageIds] = useState<Set<string>>(
     () => new Set()
   );
@@ -91,54 +85,17 @@ export default function NewPostPage() {
       .catch(() => {});
   }, []);
 
-  const queuePages = useMemo(
+  const pickerPages = useMemo(
     () =>
-      allPages.filter(
-        (p) =>
-          p.tokenStatus === "active" && p.workspaceAppId === workspaceAppId
-      ),
-    [allPages, workspaceAppId]
+      filterPagesForApp(allPages, workspaceAppId, {
+        includePendingManual: postMode === "manual",
+      }),
+    [allPages, workspaceAppId, postMode]
   );
-
-  const manualPages = useMemo(() => allPages, [allPages]);
-
-  const pickerPages = postMode === "manual" ? manualPages : queuePages;
 
   useEffect(() => {
     setSelectedPageIds(new Set(pickerPages.map((p) => p.id)));
-  }, [pickerPages, postMode, workspaceAppId]);
-
-  const allSelected =
-    pickerPages.length > 0 && selectedPageIds.size === pickerPages.length;
-  const someSelected =
-    selectedPageIds.size > 0 && selectedPageIds.size < pickerPages.length;
-
-  function togglePage(id: string) {
-    setSelectedPageIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  }
-
-  function toggleSelectAll() {
-    if (allSelected) {
-      setSelectedPageIds(new Set());
-    } else {
-      setSelectedPageIds(new Set(pickerPages.map((p) => p.id)));
-    }
-  }
-
-  function invertPageSelection() {
-    setSelectedPageIds((prev) => {
-      const next = new Set<string>();
-      for (const p of pickerPages) {
-        if (!prev.has(p.id)) next.add(p.id);
-      }
-      return next;
-    });
-  }
+  }, [pickerPages, workspaceAppId, postMode]);
 
   async function addMediaFiles(files: File[]) {
     if (files.length === 0) return;
@@ -363,7 +320,7 @@ export default function NewPostPage() {
     postMode === "queue" &&
     apps.length > 0 &&
     selectedPageIds.size > 0 &&
-    queuePages.length > 0;
+    pickerPages.length > 0;
 
   return (
     <div className="space-y-6">
@@ -409,8 +366,8 @@ export default function NewPostPage() {
           </div>
           {postMode === "manual" ? (
             <p className={`text-xs ${ui.hint}`}>
-              Chọn Page (kể cả <strong>Chưa token</strong>). Chỉ «Lưu nháp» — không vào queue. Sau
-              đó mở từng Page trên Facebook, dùng modal trên /posts.
+              Chọn <strong>Facebook App</strong> rồi Fanpage (token hoặc <strong>Thủ công</strong> đã
+              gán App trên /pages). Lưu nháp → /posts → «Đăng» từng Page.
             </p>
           ) : null}
 
@@ -418,124 +375,26 @@ export default function NewPostPage() {
             Đích đăng
           </label>
 
-          {apps.length === 0 && postMode === "queue" ? (
+          {apps.length === 0 ? (
             <p className="text-sm text-amber-800">
               Chưa có Facebook App.{" "}
               <a href="/apps" className="text-blue-600 hover:underline">
                 Tạo App
               </a>{" "}
-              trước — hoặc chọn «Đăng thủ công».
+              {postMode === "queue"
+                ? "trước khi queue."
+                : "và gán App cho Page thủ công trên /pages."}
             </p>
           ) : (
-            <>
-              {postMode === "queue" ? (
-                <div>
-                  <label className="block text-xs text-gray-500 mb-1">
-                    Facebook App
-                  </label>
-                  <select
-                    value={workspaceAppId}
-                    onChange={(e) => setWorkspaceAppId(e.target.value)}
-                    className={`${ui.select} w-full max-w-md`}
-                  >
-                    {apps.map((a) => (
-                      <option key={a.id} value={a.id}>
-                        {a.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              ) : null}
-
-              {pickerPages.length === 0 ? (
-                <p className="text-sm text-gray-500">
-                  {postMode === "queue"
-                    ? "App này chưa có Page active. "
-                    : "Chưa có Page. "}
-                  <a href="/pages" className="text-blue-600 hover:underline">
-                    Kết nối Page
-                  </a>
-                </p>
-              ) : (
-                <>
-                <div className="flex flex-wrap gap-2 mb-2">
-                  <button
-                    type="button"
-                    onClick={invertPageSelection}
-                    className={ui.btnSm}
-                  >
-                    Đảo ngược
-                  </button>
-                  <span className="text-xs text-gray-500 self-center">
-                    {selectedPageIds.size}/{pickerPages.length} Fanpage
-                  </span>
-                </div>
-                {postMode === "queue" ? (
-                  <PageCategorySelectBar
-                    pages={pickerPages}
-                    selected={selectedPageIds}
-                    onSelectedChange={setSelectedPageIds}
-                  />
-                ) : null}
-                <div className="border border-gray-100 rounded-lg divide-y divide-gray-100">
-                  <label className="flex items-center gap-3 px-4 py-3 bg-gray-50 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={allSelected}
-                      ref={(el) => {
-                        if (el) el.indeterminate = someSelected;
-                      }}
-                      onChange={toggleSelectAll}
-                      className="rounded border-gray-300"
-                    />
-                    <span className="text-sm font-medium text-gray-800">
-                      Chọn tất cả ({pickerPages.length} Fanpage)
-                    </span>
-                  </label>
-                  {pickerPages.map((p) => (
-                    <label
-                      key={p.id}
-                      className="flex items-center gap-3 px-4 py-3 cursor-pointer hover:bg-gray-50/80"
-                    >
-                      <input
-                        type="checkbox"
-                        checked={selectedPageIds.has(p.id)}
-                        onChange={() => togglePage(p.id)}
-                        className="rounded border-gray-300"
-                      />
-                      {p.pageAvatar ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img
-                          src={p.pageAvatar}
-                          alt=""
-                          className="w-8 h-8 rounded-full"
-                        />
-                      ) : (
-                        <div className="w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center text-xs font-medium">
-                          {p.pageName.charAt(0)}
-                        </div>
-                      )}
-                      <span className="text-sm text-gray-900 flex-1 min-w-0">
-                        {p.pageName}
-                        <span className="block text-[10px] text-gray-400 truncate">
-                          {p.tokenStatus === "pending"
-                            ? "Chưa token"
-                            : p.tokenStatus === "active"
-                              ? "Token OK"
-                              : p.tokenStatus}
-                          {p.categoryName ? ` · ${p.categoryName}` : ""}
-                        </span>
-                      </span>
-                    </label>
-                  ))}
-                </div>
-                </>
-              )}
-              <p className="text-xs text-gray-500">
-                Đã chọn {selectedPageIds.size} / {pickerPages.length} Fanpage
-                {postMode === "queue" ? " trong App này" : ""}.
-              </p>
-            </>
+            <FanpageAppPicker
+              apps={apps}
+              allPages={allPages}
+              workspaceAppId={workspaceAppId}
+              onWorkspaceAppIdChange={setWorkspaceAppId}
+              selectedPageIds={selectedPageIds}
+              onSelectedPageIdsChange={setSelectedPageIds}
+              includePendingManual={postMode === "manual"}
+            />
           )}
         </div>
 

@@ -25,7 +25,22 @@ type FanpageAppPickerProps = {
   selectedPageIds: Set<string>;
   onSelectedPageIdsChange: (next: Set<string>) => void;
   disabled?: boolean;
+  /** false = chỉ Page token active (queue API). Mặc định true = cả thêm thủ công. */
+  includePendingManual?: boolean;
 };
+
+export function filterPagesForApp(
+  allPages: PageOption[],
+  appId: string,
+  options?: { includePendingManual?: boolean }
+): PageOption[] {
+  const includePending = options?.includePendingManual !== false;
+  return allPages.filter((p) => {
+    if (p.workspaceAppId !== appId) return false;
+    if (p.tokenStatus === "active") return true;
+    return includePending && p.tokenStatus === "pending";
+  });
+}
 
 export function FanpageAppPicker({
   apps,
@@ -35,13 +50,11 @@ export function FanpageAppPicker({
   selectedPageIds,
   onSelectedPageIdsChange,
   disabled = false,
+  includePendingManual = true,
 }: FanpageAppPickerProps) {
   const appPages = useMemo(
-    () =>
-      allPages.filter(
-        (p) => p.tokenStatus === "active" && p.workspaceAppId === workspaceAppId
-      ),
-    [allPages, workspaceAppId]
+    () => filterPagesForApp(allPages, workspaceAppId, { includePendingManual }),
+    [allPages, workspaceAppId, includePendingManual]
   );
 
   const allPagesSelected =
@@ -77,9 +90,7 @@ export function FanpageAppPicker({
 
   function onAppChange(appId: string) {
     onWorkspaceAppIdChange(appId);
-    const inApp = allPages.filter(
-      (p) => p.tokenStatus === "active" && p.workspaceAppId === appId
-    );
+    const inApp = filterPagesForApp(allPages, appId, { includePendingManual });
     const next = new Set([...selectedPageIds].filter((id) => inApp.some((p) => p.id === id)));
     if (next.size === 0 && inApp[0]) next.add(inApp[0].id);
     onSelectedPageIdsChange(next);
@@ -107,9 +118,9 @@ export function FanpageAppPicker({
         <label className="block text-sm font-medium text-gray-700 mb-2">Fanpage đăng bài</label>
         {appPages.length === 0 ? (
           <p className="text-sm text-gray-500">
-            App này chưa có Page active.{" "}
+            App này chưa có Fanpage (token hoặc thêm thủ công + gán App).{" "}
             <Link href="/pages" className="text-blue-600 hover:underline">
-              Kết nối Page
+              /pages
             </Link>
           </p>
         ) : (
@@ -170,10 +181,22 @@ export function FanpageAppPicker({
                       {p.pageName.charAt(0)}
                     </div>
                   )}
-                  <span className="text-sm text-gray-900">{p.pageName}</span>
+                  <span className="text-sm text-gray-900 flex-1 min-w-0">
+                    {p.pageName}
+                    {p.tokenStatus === "pending" ? (
+                      <span className="ml-1.5 text-[10px] font-medium text-amber-700 bg-amber-50 px-1 rounded">
+                        Thủ công
+                      </span>
+                    ) : null}
+                  </span>
                 </label>
               ))}
             </div>
+            {includePendingManual ? (
+              <p className="text-xs text-gray-500 mt-2 max-w-xl">
+                Page «Thủ công»: đăng tay trên /posts (không qua API nếu chưa token).
+              </p>
+            ) : null}
           </>
         )}
       </div>

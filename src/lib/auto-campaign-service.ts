@@ -271,7 +271,9 @@ export async function scheduleCampaignPosts(
       ? facebookPageIds
       : parsePageIdsJson(campaign.facebookPageIds);
 
-  const validated = await validateUserPageIds(campaign.userId, pageIds);
+  const validated = await validateUserPageIds(campaign.userId, pageIds, {
+    requireActiveToken: false,
+  });
   if (!validated.ok) {
     throw new Error(validated.error);
   }
