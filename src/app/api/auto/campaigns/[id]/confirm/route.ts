@@ -73,7 +73,7 @@ export async function POST(request: NextRequest, { params }: Params) {
     .where(eq(autoCampaign.id, id));
 
   const updated = (await getOwnedCampaign(id, session.user.id))!;
-  const err = validateCampaignPlan(updated);
+  const err = validateCampaignPlan(updated, { requireFutureExecuteAt: true });
   if (err) {
     await db
       .update(autoCampaign)

@@ -89,7 +89,13 @@ export async function processDueAutoCampaigns(): Promise<void> {
   const head = due[0];
   if (!head) return;
 
-  await runPlannedAutoCampaign(head.id, head.userId, "cron");
+  const result = await runPlannedAutoCampaign(head.id, head.userId, "cron");
+  if (!result.ok) {
+    cronLog("AUTO — cron không chạy được plan đến hạn", {
+      campaignId: head.id,
+      error: result.error,
+    });
+  }
 }
 
 /** Thủ công: lưu xong chạy pipeline ngay — không hẹn executeAt, không vào queue. */

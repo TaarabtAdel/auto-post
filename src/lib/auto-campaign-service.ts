@@ -56,7 +56,15 @@ export async function getOwnedCampaign(
   return rows[0] ?? null;
 }
 
-export function validateCampaignPlan(c: AutoCampaignRow): string | null {
+export type ValidateCampaignPlanOptions = {
+  /** Wizard «Hẹn chạy» — executeAt phải sau thời điểm hiện tại. */
+  requireFutureExecuteAt?: boolean;
+};
+
+export function validateCampaignPlan(
+  c: AutoCampaignRow,
+  opts?: ValidateCampaignPlanOptions
+): string | null {
   if (!c.caption1.trim() || !c.caption2.trim() || !c.caption3.trim()) {
     return "Thiếu caption (bước Dán Gemini).";
   }
@@ -77,7 +85,10 @@ export function validateCampaignPlan(c: AutoCampaignRow): string | null {
   }
   const runMode = parseRunMode(c.runMode);
   if (runMode !== "manual") {
-    if (!c.executeAt || c.executeAt.getTime() <= Date.now()) {
+    if (!c.executeAt) {
+      return "Thiếu thời điểm hẹn AUTO.";
+    }
+    if (opts?.requireFutureExecuteAt && c.executeAt.getTime() <= Date.now()) {
       return "Chọn thời điểm chạy AUTO trong tương lai.";
     }
   }
