@@ -3,8 +3,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
+  collectYouTubeUrlsFromText,
   normalizeYouTubeUrl,
-  parseYouTubeUrlsFromText,
   type YouTubeSearchHit,
 } from "@/lib/youtube-url";
 import { SplitContentModal } from "@/components/split-content-modal";
@@ -16,6 +16,63 @@ const LS_WATCHED = "ytloc_watched";
 const LS_RESULTS = "ytloc_results";
 const LS_TEMPLATE = "ytloc_cmd_template_v2";
 const DEFAULT_TEMPLATE = DEFAULT_YOUTUBE_GEMINI_TEMPLATE;
+const LIST_PAGE_SIZE = 50;
+
+type FailedLink = { url: string; reason: string };
+
+function paginateSlice<T>(items: T[], page: number, pageSize: number): T[] {
+  const start = (Math.max(1, page) - 1) * pageSize;
+  return items.slice(start, start + pageSize);
+}
+
+function totalPages(total: number, pageSize: number): number {
+  if (total <= 0) return 1;
+  return Math.ceil(total / pageSize);
+}
+
+function ListPagination({
+  page,
+  setPage,
+  total,
+  pageSize,
+  label,
+}: {
+  page: number;
+  setPage: (n: number) => void;
+  total: number;
+  pageSize: number;
+  label?: string;
+}) {
+  const pages = totalPages(total, pageSize);
+  const current = Math.min(Math.max(1, page), pages);
+  if (total === 0) return null;
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-2 py-2 text-xs text-gray-600 border-t border-gray-100">
+      <span>
+        {label ? `${label} · ` : ""}
+        {total} mục · trang {current}/{pages} ({pageSize}/trang)
+      </span>
+      <div className="flex gap-2">
+        <button
+          type="button"
+          className={ui.btnSm}
+          disabled={current <= 1}
+          onClick={() => setPage(current - 1)}
+        >
+          Trước
+        </button>
+        <button
+          type="button"
+          className={ui.btnSm}
+          disabled={current >= pages}
+          onClick={() => setPage(current + 1)}
+        >
+          Sau
+        </button>
+      </div>
+    </div>
+  );
+}
 
 function formatDuration(sec: number): string {
   if (!sec) return "—";
@@ -78,6 +135,9 @@ export function YouTubeLocVideo() {
   const [downloadLinks, setDownloadLinks] = useState<
     { title: string; url: string; fileName?: string }[]
   >([]);
+  const [listPage, setListPage] = useState(1);
+  const [failedLinks, setFailedLinks] = useState<FailedLink[]>([]);
+  const [failedPage, setFailedPage] = useState(1);
 
   useEffect(() => {
     try {
@@ -130,6 +190,30 @@ export function YouTubeLocVideo() {
       return true;
     });
   }, [results, seenFilter, watched]);
+
+  useEffect(() => {
+    setListPage(1);
+  }, [seenFilter]);
+
+  useEffect(() => {
+    const pages = totalPages(visible.length, LIST_PAGE_SIZE);
+    if (listPage > pages) setListPage(pages);
+  }, [visible.length, listPage]);
+
+  useEffect(() => {
+    const pages = totalPages(failedLinks.length, LIST_PAGE_SIZE);
+    if (failedPage > pages) setFailedPage(pages);
+  }, [failedLinks.length, failedPage]);
+
+  const visiblePageItems = useMemo(
+    () => paginateSlice(visible, listPage, LIST_PAGE_SIZE),
+    [visible, listPage]
+  );
+
+  const failedPageItems = useMemo(
+    () => paginateSlice(failedLinks, failedPage, LIST_PAGE_SIZE),
+    [failedLinks, failedPage]
+  );
 
   function mergeHits(hits: YouTubeSearchHit[]) {
     const seen = new Set(hits.map((h) => h.id));
@@ -213,14 +297,27 @@ export function YouTubeLocVideo() {
   }
 
   async function addUrlsFromInput() {
-    const urls = parseYouTubeUrlsFromText(urlInput);
-    if (urls.length === 0) {
+    const { valid: urls, invalid } = collectYouTubeUrlsFromText(urlInput);
+    const batchFailed: FailedLink[] = invalid.map((i) => ({
+      url: i.raw,
+      reason: i.reason,
+    }));
+
+    if (urls.length === 0 && batchFailed.length === 0) {
       setError(
         "Dán ít nhất một link YouTube hợp lệ (mỗi dòng một link, hoặc cách bằng dấu phẩy / khoảng trắng)."
       );
       return;
     }
-    if (urls.length === 1) {
+
+    if (urls.length === 0) {
+      setFailedLinks(batchFailed);
+      setFailedPage(1);
+      setError("Không có link YouTube hợp lệ trong ô dán.");
+      return;
+    }
+
+    if (urls.length === 1 && batchFailed.length === 0) {
       await addByUrl(urls[0]);
       return;
     }
@@ -229,7 +326,7 @@ export function YouTubeLocVideo() {
     setError("");
     let added = 0;
     let skipped = 0;
-    let failed = 0;
+    let failed = batchFailed.length;
     const hitsToMerge: YouTubeSearchHit[] = [];
     const knownIds = new Set(results.map((r) => r.id));
 
@@ -240,6 +337,7 @@ export function YouTubeLocVideo() {
           const result = await fetchHitFromUrl(urls[i]);
           if (!result.ok) {
             failed++;
+            batchFailed.push({ url: urls[i], reason: result.error });
             continue;
           }
           if (knownIds.has(result.hit.id)) {
@@ -251,16 +349,24 @@ export function YouTubeLocVideo() {
           }
         } catch {
           failed++;
+          batchFailed.push({
+            url: urls[i],
+            reason: "Lỗi kết nối khi lấy thông tin video.",
+          });
         }
       }
 
       if (hitsToMerge.length > 0) mergeHits(hitsToMerge);
 
+      setFailedLinks(batchFailed);
+      setFailedPage(1);
       setUrlInput("");
       const parts = [`${added} video mới`];
       if (skipped > 0) parts.push(`${skipped} đã có sẵn`);
       if (failed > 0) parts.push(`${failed} lỗi`);
-      setStatus(`Đã xử lý ${urls.length} link: ${parts.join(", ")}.`);
+      setStatus(
+        `Đã xử lý ${urls.length + invalid.length} dòng: ${parts.join(", ")}.`
+      );
     } finally {
       setAddingUrl(false);
     }
@@ -708,9 +814,9 @@ export function YouTubeLocVideo() {
         </button>
       </div>
 
-      <div className={`${ui.tableShell} max-h-[420px] overflow-auto`}>
+      <div className={ui.tableShell}>
         <table className="w-full text-left border-collapse">
-          <thead className={`sticky top-0 ${ui.tableHead}`}>
+          <thead className={ui.tableHead}>
             <tr>
               <th className={`${ui.th} w-14`}>Chọn</th>
               <th className={`${ui.th} w-20`}>Đã xem</th>
@@ -728,7 +834,7 @@ export function YouTubeLocVideo() {
                 </td>
               </tr>
             ) : (
-              visible.map((v) => (
+              visiblePageItems.map((v) => (
                 <tr
                   key={v.id}
                   className="hover:bg-gray-50/80"
@@ -778,7 +884,59 @@ export function YouTubeLocVideo() {
             )}
           </tbody>
         </table>
+        <ListPagination
+          label="Danh sách video"
+          page={listPage}
+          setPage={setListPage}
+          total={visible.length}
+          pageSize={LIST_PAGE_SIZE}
+        />
       </div>
+
+      {failedLinks.length > 0 && (
+        <div className={`${ui.card} ${ui.cardPadSm} space-y-2`}>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h3 className="font-medium text-sm text-red-800">
+              Link lỗi ({failedLinks.length})
+            </h3>
+            <button
+              type="button"
+              className={ui.btnSm}
+              onClick={() => {
+                setFailedLinks([]);
+                setFailedPage(1);
+              }}
+            >
+              Xóa danh sách lỗi
+            </button>
+          </div>
+          <div className={ui.tableShell}>
+            <table className="w-full text-left border-collapse text-xs">
+              <thead className={ui.tableHead}>
+                <tr>
+                  <th className={ui.th}>Link</th>
+                  <th className={`${ui.th} w-48`}>Lý do</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {failedPageItems.map((row, idx) => (
+                  <tr key={`${failedPage}-${idx}-${row.url}`}>
+                    <td className={`${ui.td} break-all font-mono`}>{row.url}</td>
+                    <td className={`${ui.td} text-red-700`}>{row.reason}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <ListPagination
+              label="Link lỗi"
+              page={failedPage}
+              setPage={setFailedPage}
+              total={failedLinks.length}
+              pageSize={LIST_PAGE_SIZE}
+            />
+          </div>
+        </div>
+      )}
 
       <div className="flex flex-wrap gap-2">
         <button
@@ -859,7 +1017,7 @@ export function YouTubeLocVideo() {
       )}
 
       {showHistory && (
-        <div className={`${ui.card} ${ui.cardPadSm} max-h-40 overflow-auto`}>
+        <div className={`${ui.card} ${ui.cardPadSm}`}>
           <p className="font-medium mb-1">Lịch sử đã xem ({watched.size})</p>
           {[...watched].length === 0 ? (
             <p className="text-gray-500">Chưa đánh dấu video nào.</p>

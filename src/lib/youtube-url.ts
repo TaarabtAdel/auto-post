@@ -71,3 +71,41 @@ export function parseYouTubeUrlsFromText(text: string): string[] {
   }
   return out;
 }
+
+/** Giống parseYouTubeUrlsFromText nhưng trả thêm dòng/link không hợp lệ. */
+export function collectYouTubeUrlsFromText(text: string): {
+  valid: string[];
+  invalid: { raw: string; reason: string }[];
+} {
+  const parts = text
+    .split(/[\r\n]+/)
+    .flatMap((line) => line.split(/[\s,;]+/))
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+  const valid: string[] = [];
+  const invalid: { raw: string; reason: string }[] = [];
+  const seen = new Set<string>();
+
+  for (const raw of parts) {
+    if (!isYouTubeUrl(raw)) {
+      if (/^https?:\/\//i.test(raw) || /youtube|youtu\.be/i.test(raw)) {
+        invalid.push({ raw, reason: "Không phải link YouTube hợp lệ." });
+      }
+      continue;
+    }
+    try {
+      const norm = normalizeYouTubeUrl(raw);
+      if (seen.has(norm)) continue;
+      seen.add(norm);
+      valid.push(norm);
+    } catch (e) {
+      invalid.push({
+        raw,
+        reason: e instanceof Error ? e.message : "Link không hợp lệ.",
+      });
+    }
+  }
+
+  return { valid, invalid };
+}
