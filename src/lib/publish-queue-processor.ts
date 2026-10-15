@@ -1,7 +1,7 @@
 import { db } from "@/lib/db";
 import { post } from "@/db/schema/post";
 import { publishQueue } from "@/db/schema/publish-queue";
-import { eq, and, lte, asc, inArray, isNotNull } from "drizzle-orm";
+import { eq, and, lte, asc, desc, inArray, isNotNull } from "drizzle-orm";
 import { randomBytes } from "crypto";
 import { publishPostById } from "@/lib/publish-post";
 import { cronLog, publishLog } from "@/lib/cron-log";
@@ -10,7 +10,71 @@ import {
   getFacebookPageIdsForPost,
   refreshPostAggregateStatus,
 } from "@/lib/post-pages";
-import { scheduledAtForPageInBatch } from "@/lib/publish-settings";
+import {
+  getPublishPageIntervalMinutes,
+  getPublishPageIntervalMs,
+  scheduledAtForPageInBatch,
+} from "@/lib/publish-settings";
+
+export type PublishQueueTickResult =
+  | "processed"
+  | "none_due"
+  | "spacing_wait"
+  | "busy";
+
+async function getLastQueuePublishFinishedAt(): Promise<Date | null> {
+  const rows = await db
+    .select({ completedAt: publishQueue.completedAt })
+    .from(publishQueue)
+    .where(
+      and(
+        inArray(publishQueue.status, ["completed", "failed"]),
+        isNotNull(publishQueue.completedAt)
+      )
+    )
+    .orderBy(desc(publishQueue.completedAt))
+    .limit(1);
+  return rows[0]?.completedAt ?? null;
+}
+
+/** Xếp lại scheduledAt pending — luôn cách nhau đủ interval (kể cả bắt kịp quá hạn). */
+export async function enforcePendingJobSpacing(): Promise<number> {
+  const spacingMs = getPublishPageIntervalMs();
+  const pending = await db
+    .select()
+    .from(publishQueue)
+    .where(eq(publishQueue.status, "pending"))
+    .orderBy(asc(publishQueue.scheduledAt), asc(publishQueue.queueOrder));
+
+  if (pending.length === 0) return 0;
+
+  const lastDone = await getLastQueuePublishFinishedAt();
+  let nextAllowedMs = lastDone
+    ? lastDone.getTime() + spacingMs
+    : Date.now();
+
+  let shifted = 0;
+  for (const job of pending) {
+    const intendedMs = new Date(job.scheduledAt).getTime();
+    const runAtMs = Math.max(intendedMs, nextAllowedMs);
+    if (runAtMs !== intendedMs) {
+      await db
+        .update(publishQueue)
+        .set({ scheduledAt: new Date(runAtMs) })
+        .where(eq(publishQueue.id, job.id));
+      shifted++;
+    }
+    nextAllowedMs = runAtMs + spacingMs;
+  }
+
+  if (shifted > 0) {
+    cronLog("đã dời lịch queue pending theo khoảng cách Fanpage", {
+      shifted,
+      intervalMinutes: getPublishPageIntervalMinutes(),
+    });
+  }
+  return shifted;
+}
 
 const STALE_PROCESSING_MS = 3 * 60 * 1000;
 
@@ -256,6 +320,8 @@ export async function repairPublishQueue(): Promise<void> {
       await refreshPostAggregateStatus(row.id);
     }
   }
+
+  await enforcePendingJobSpacing();
 }
 
 /** Chạy nhiều tick liên tiếp (khi mở /posts hoặc bấm nút xử lý queue). */
@@ -266,17 +332,9 @@ export async function drainPublishQueue(maxTicks = 10): Promise<number> {
 
   let processed = 0;
   for (let i = 0; i < maxTicks; i++) {
-    const before = await db
-      .select({ id: publishQueue.id })
-      .from(publishQueue)
-      .where(
-        and(eq(publishQueue.status, "pending"), lte(publishQueue.scheduledAt, new Date()))
-      )
-      .limit(1);
-    if (before.length === 0) break;
-
-    await processPublishQueueTick();
-    processed++;
+    const outcome = await processPublishQueueTick();
+    if (outcome === "processed") processed++;
+    else break;
   }
   cronLog("drainPublishQueue xong", { processed });
   return processed;
@@ -286,7 +344,7 @@ export async function drainPublishQueue(maxTicks = 10): Promise<number> {
  * Cron tick (1 phút): xử lý tối đa 1 job pending có scheduledAt <= now.
  * Các page trong cùng batch chạy lần lượt qua queueOrder.
  */
-export async function processPublishQueueTick(): Promise<void> {
+export async function processPublishQueueTick(): Promise<PublishQueueTickResult> {
   await resetStaleProcessingJobs();
 
   const processing = await db
@@ -299,10 +357,23 @@ export async function processPublishQueueTick(): Promise<void> {
     cronLog("tick bỏ qua — có job đang processing", {
       queueJobId: processing[0].id,
     });
-    return;
+    return "busy";
   }
 
   const now = new Date();
+  const spacingMs = getPublishPageIntervalMs();
+  const lastDone = await getLastQueuePublishFinishedAt();
+  if (lastDone && now.getTime() - lastDone.getTime() < spacingMs) {
+    const waitMin = Math.ceil(
+      (spacingMs - (now.getTime() - lastDone.getTime())) / 60_000
+    );
+    cronLog("tick — chờ khoảng cách Fanpage", {
+      intervalMinutes: getPublishPageIntervalMinutes(),
+      waitMinutes: waitMin,
+      lastFinishedAt: appTzNowLabel(lastDone),
+    });
+    return "spacing_wait";
+  }
   const pendingCount = await db
     .select({ id: publishQueue.id })
     .from(publishQueue)
@@ -330,7 +401,7 @@ export async function processPublishQueueTick(): Promise<void> {
         ? appTzNowLabel(new Date(nextRow[0].scheduledAt))
         : null,
     });
-    return;
+    return "none_due";
   }
 
   const overdueMs = now.getTime() - new Date(job.scheduledAt).getTime();
@@ -381,6 +452,7 @@ export async function processPublishQueueTick(): Promise<void> {
   }
 
   await refreshPostAggregateStatus(job.postId);
+  return "processed";
 }
 
 export async function enqueuePostsForBatch(

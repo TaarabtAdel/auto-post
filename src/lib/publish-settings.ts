@@ -51,3 +51,7 @@ export function scheduledAtForPageInBatch(
   const intervalMs = getPublishPageIntervalMinutes() * 60_000;
   return new Date(base.getTime() + queueOrder * intervalMs);
 }
+
+export function getPublishPageIntervalMs(): number {
+  return getPublishPageIntervalMinutes() * 60_000;
+}
