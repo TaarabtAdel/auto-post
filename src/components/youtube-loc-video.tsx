@@ -426,7 +426,6 @@ export function YouTubeLocVideo() {
           action: "search",
           query: q,
           limit: 30,
-          minDurationSec: 15 * 60,
           maxDurationSec: parseMaxDuration(maxDur) || 100 * 60,
         }),
       });
@@ -446,7 +445,9 @@ export function YouTubeLocVideo() {
       setSavedKeyword(q);
       setQuery(q);
       setSelected(new Set());
-      setStatus(`Tìm thấy ${hits.length} video (≥ 15 phút, ≤ ${maxDur}). Tổng kho: ${merged.length}.`);
+      setStatus(
+        `Tìm thấy ${hits.length} video (thời lượng ≤ ${maxDur}, hoặc chưa có metadata). Tổng kho: ${merged.length}.`
+      );
     } catch {
       setError("Lỗi kết nối khi tìm kiếm.");
     } finally {
@@ -691,8 +692,8 @@ export function YouTubeLocVideo() {
   return (
     <div className={`${ui.card} ${ui.cardPad} space-y-4 text-sm`}>
       <p className={ui.hint}>
-        Bấm tên video: sao chép lệnh kèm link · Nhấp đúp: mở YouTube · Tìm kiếm ưu tiên
-        video trên 15 phút
+        Bấm tên video: sao chép lệnh kèm link · Nhấp đúp: mở YouTube · Tìm kiếm lọc
+        video dài hơn mức «Tối đa» (30 / 60 / 100 / 180 phút)
       </p>
 
       <div className="flex flex-wrap gap-2">
@@ -707,11 +708,13 @@ export function YouTubeLocVideo() {
           value={maxDur}
           onChange={(e) => setMaxDur(e.target.value)}
           className={ui.select}
+          title="Bỏ qua video dài hơn mức này"
+          aria-label="Thời lượng tối đa"
         >
-          <option value="30:00">30:00</option>
-          <option value="60:00">60:00</option>
-          <option value="100:00">100:00</option>
-          <option value="180:00">180:00</option>
+          <option value="30:00">≤ 30 phút</option>
+          <option value="60:00">≤ 60 phút</option>
+          <option value="100:00">≤ 100 phút</option>
+          <option value="180:00">≤ 180 phút</option>
         </select>
         <button
           type="button"

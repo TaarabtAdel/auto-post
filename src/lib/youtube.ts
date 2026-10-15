@@ -94,7 +94,7 @@ export async function searchYouTubeVideos(opts: {
   if (!query) throw new Error("Nhập từ khóa tìm kiếm.");
   assertYtdlpAvailable();
   const limit = Math.min(50, Math.max(5, opts.limit ?? 25));
-  const minD = opts.minDurationSec ?? 15 * 60;
+  const minD = opts.minDurationSec ?? 0;
   const maxD = opts.maxDurationSec ?? 100 * 60;
 
   try {
@@ -129,13 +129,15 @@ export async function searchYouTubeVideos(opts: {
           url: e.webpage_url || e.url || (id ? `https://www.youtube.com/watch?v=${id}` : ""),
         };
       })
-      .filter(
-        (e) =>
-          e.id &&
-          e.url &&
-          e.durationSec >= minD &&
-          e.durationSec <= maxD
-      );
+      .filter((e) => {
+        if (!e.id || !e.url) return false;
+        const d = e.durationSec;
+        if (d > 0) {
+          if (minD > 0 && d < minD) return false;
+          if (d > maxD) return false;
+        }
+        return true;
+      });
   } catch (err) {
     throw mapError(err);
   }
