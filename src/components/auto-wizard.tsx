@@ -36,7 +36,7 @@ import {
   type PageOption,
 } from "@/components/fanpage-app-picker";
 
-const LS_TEMPLATE = "ytloc_cmd_template_v2";
+const LS_TEMPLATE = "ytloc_cmd_template_v3";
 const STEPS = [
   "1. Video & prompt",
   "2. Dán Gemini",
@@ -324,11 +324,19 @@ export function AutoWizard({ initialCampaignId = null }: AutoWizardProps) {
       setError("Không tách được. Kiểm tra lại nội dung dán.");
       return;
     }
-    setTimes(next.times);
+    // AUTO vẫn dùng 3 bài — lấy 3 khung / caption đầu nếu Gemini trả 4.
+    const ranges = parseCutRanges(next.times).slice(0, 3);
+    setTimes(
+      ranges.length > 0
+        ? ranges.map((r) => r.label).join(",")
+        : next.times
+    );
     setCaption1(next.caption1);
     setCaption2(next.caption2);
     setCaption3(next.caption3);
-    setNote(`Đã tách — ${parseCutRanges(next.times).length} khung cắt. Bấm "Lưu & tiếp".`);
+    setNote(
+      `Đã tách — AUTO lấy ${ranges.length || parseCutRanges(next.times).length} khung cắt (tối đa 3). Bấm "Lưu & tiếp".`
+    );
   }
 
   async function openYtsaveForPlanVideo() {

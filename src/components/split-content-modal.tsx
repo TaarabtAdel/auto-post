@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { splitGeminiContent } from "@/lib/split-gemini-content";
+import { copyToClipboard } from "@/lib/copy-to-clipboard";
 import { ui } from "@/lib/dashboard-ui";
 
 const LS_SPLITS = "ytloc_split_contents";
@@ -14,6 +15,7 @@ type SavedSplit = {
   caption1: string;
   caption2: string;
   caption3: string;
+  caption4: string;
 };
 
 type SplitContentModalProps = {
@@ -23,12 +25,16 @@ type SplitContentModalProps = {
 
 const field = `${ui.input} text-[13px] py-1.5`;
 
-async function copyText(text: string) {
-  await navigator.clipboard.writeText(text);
-}
-
 function emptyDraft(name = ""): Omit<SavedSplit, "id"> {
-  return { name, raw: "", times: "", caption1: "", caption2: "", caption3: "" };
+  return {
+    name,
+    raw: "",
+    times: "",
+    caption1: "",
+    caption2: "",
+    caption3: "",
+    caption4: "",
+  };
 }
 
 function ContentBox({
@@ -87,7 +93,10 @@ function ContentBox({
   );
 }
 
-export function SplitContentModal({ defaultName = "", onClose }: SplitContentModalProps) {
+export function SplitContentModal({
+  defaultName = "",
+  onClose,
+}: SplitContentModalProps) {
   const [saved, setSaved] = useState<SavedSplit[]>([]);
   const [activeId, setActiveId] = useState("");
   const [draft, setDraft] = useState(emptyDraft(defaultName));
@@ -99,7 +108,14 @@ export function SplitContentModal({ defaultName = "", onClose }: SplitContentMod
   useEffect(() => {
     try {
       const raw = JSON.parse(localStorage.getItem(LS_SPLITS) || "[]");
-      if (Array.isArray(raw)) setSaved(raw);
+      if (Array.isArray(raw)) {
+        setSaved(
+          raw.map((s: SavedSplit) => ({
+            ...s,
+            caption4: s.caption4 ?? "",
+          }))
+        );
+      }
     } catch {
       // ignore
     }
@@ -125,8 +141,13 @@ export function SplitContentModal({ defaultName = "", onClose }: SplitContentMod
       return;
     }
     patch(next);
-    const n = [next.caption1, next.caption2, next.caption3].filter(Boolean).length;
-    setNote(`Đã tách ${n} phần.`);
+    const n = [
+      next.caption1,
+      next.caption2,
+      next.caption3,
+      next.caption4,
+    ].filter(Boolean).length;
+    setNote(`Đã tách ${n} caption · khung cắt: ${next.times || "—"}.`);
   }
 
   function newDraft() {
@@ -147,6 +168,7 @@ export function SplitContentModal({ defaultName = "", onClose }: SplitContentMod
         caption1: item.caption1,
         caption2: item.caption2,
         caption3: item.caption3,
+        caption4: item.caption4 ?? "",
       });
     }
   }
@@ -167,7 +189,11 @@ export function SplitContentModal({ defaultName = "", onClose }: SplitContentMod
       setNote("Ô này đang trống.");
       return;
     }
-    await copyText(text);
+    const ok = await copyToClipboard(text);
+    if (!ok) {
+      setNote("Không copy tự động — bôi đen ô rồi Ctrl+C.");
+      return;
+    }
     setCopiedKey(key);
     setTimeout(() => setCopiedKey(""), 2000);
     setNote("Đã copy.");
@@ -209,8 +235,14 @@ export function SplitContentModal({ defaultName = "", onClose }: SplitContentMod
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 bg-gray-50 rounded-t-xl">
-          <h3 className="font-semibold">Tách và lưu 4 nội dung</h3>
-          <button type="button" className="text-lg leading-none px-2" onClick={onClose}>
+          <h3 className="font-semibold">
+            Tách 4 caption + thời gian cắt (4 khung)
+          </h3>
+          <button
+            type="button"
+            className="text-lg leading-none px-2"
+            onClick={onClose}
+          >
             ×
           </button>
         </div>
@@ -248,7 +280,7 @@ export function SplitContentModal({ defaultName = "", onClose }: SplitContentMod
           </div>
 
           <label className="block">
-            <span>Dán toàn bộ kết quả như lệnh 2 vào ở đây:</span>
+            <span>Dán toàn bộ kết quả Gemini vào đây:</span>
             <textarea
               value={draft.raw}
               onChange={(e) => patch({ raw: e.target.value })}
@@ -259,7 +291,7 @@ export function SplitContentModal({ defaultName = "", onClose }: SplitContentMod
 
           <div>
             <button type="button" className={ui.btnPrimary} onClick={splitFour}>
-              Tách 4 nội dung
+              Tách 4 caption + thời gian
             </button>
           </div>
 
@@ -267,7 +299,7 @@ export function SplitContentModal({ defaultName = "", onClose }: SplitContentMod
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
             <ContentBox
-              label="1. Thời gian cắt clip"
+              label="1. Thời gian cắt clip (4 khung)"
               copied={copiedKey === "times"}
               creating={creatingKey === "times"}
               created={createdKeys.has("times")}
@@ -305,6 +337,16 @@ export function SplitContentModal({ defaultName = "", onClose }: SplitContentMod
               onChange={(v) => patch({ caption3: v })}
               onCopy={() => copyField("c3", draft.caption3)}
               onCreate={() => createPost("c3", draft.caption3)}
+            />
+            <ContentBox
+              label="5. Caption đoạn 4"
+              copied={copiedKey === "c4"}
+              creating={creatingKey === "c4"}
+              created={createdKeys.has("c4")}
+              value={draft.caption4}
+              onChange={(v) => patch({ caption4: v })}
+              onCopy={() => copyField("c4", draft.caption4)}
+              onCreate={() => createPost("c4", draft.caption4)}
             />
           </div>
         </div>

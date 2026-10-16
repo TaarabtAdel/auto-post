@@ -15,7 +15,7 @@ import { DEFAULT_YOUTUBE_GEMINI_TEMPLATE } from "@/lib/youtube-gemini-template";
 const LS_KEYWORDS = "ytloc_keywords";
 const LS_WATCHED = "ytloc_watched";
 const LS_RESULTS = "ytloc_results";
-const LS_TEMPLATE = "ytloc_cmd_template_v2";
+const LS_TEMPLATE = "ytloc_cmd_template_v3";
 const DEFAULT_TEMPLATE = DEFAULT_YOUTUBE_GEMINI_TEMPLATE;
 const LIST_PAGE_SIZE = 50;
 
@@ -986,7 +986,7 @@ export function YouTubeLocVideo() {
             setShowSplit(true);
           }}
         >
-          Tách / Lưu 4 nội dung
+          Tách / Lưu 4 caption
         </button>
         <button
           type="button"

@@ -3,6 +3,7 @@ export type SplitFourResult = {
   caption1: string;
   caption2: string;
   caption3: string;
+  caption4: string;
 };
 
 const RANGE = "\\d{1,2}:\\d{2}(?::\\d{2})?\\s*-\\s*\\d{1,2}:\\d{2}(?::\\d{2})?";
@@ -16,13 +17,19 @@ function normalizeTimes(raw: string): string {
 function extractTimes(text: string): string {
   const matches = [...text.matchAll(TIMES_RE)];
   if (matches.length > 0) {
-    return normalizeTimes(matches[matches.length - 1][0]);
+    const frames = normalizeTimes(matches[matches.length - 1][0])
+      .split(",")
+      .filter(Boolean)
+      .slice(0, 4);
+    return frames.join(",");
   }
 
   const frames = [
-    ...text.matchAll(/\*?\s*\*?\s*Khung thời gian:?\*?\s*(\d{1,2}:\d{2}(?::\d{2})?\s*-\s*\d{1,2}:\d{2}(?::\d{2})?)/gi),
+    ...text.matchAll(
+      /\*?\s*\*?\s*Khung thời gian:?\*?\s*(\d{1,2}:\d{2}(?::\d{2})?\s*-\s*\d{1,2}:\d{2}(?::\d{2})?)/gi
+    ),
   ].map((m) => normalizeTimes(m[1]));
-  return frames.slice(0, 3).join(",");
+  return frames.slice(0, 4).join(",");
 }
 
 function stripAfterSummary(seg: string): string {
@@ -46,12 +53,17 @@ function extractOneCaption(seg: string): string {
   return lines.slice(hookAt).join("\n").trim();
 }
 
-function extractCaptions(text: string): [string, string, string] {
+function extractCaptions(text: string): [string, string, string, string] {
   const parts = text.split(SEGMENT_RE).slice(1);
-  const fromSegments = parts.map(extractOneCaption).filter(Boolean).slice(0, 3);
+  const fromSegments = parts.map(extractOneCaption).filter(Boolean).slice(0, 4);
 
-  if (fromSegments.length >= 3) {
-    return [fromSegments[0], fromSegments[1], fromSegments[2]];
+  if (fromSegments.length >= 4) {
+    return [
+      fromSegments[0],
+      fromSegments[1],
+      fromSegments[2],
+      fromSegments[3],
+    ];
   }
 
   const fallback: string[] = [];
@@ -61,27 +73,38 @@ function extractCaptions(text: string): [string, string, string] {
     if (/^\s*😄/.test(line) && !/WATCH\s+FULL\s+VIDEO/i.test(line)) {
       const chunk: string[] = [];
       for (let j = i; j < lines.length; j++) {
-        if (j > i && (/(?:🔹\s*)?Đoạn\s*#?\s*\d+/i.test(lines[j]) || /TỔNG HỢP/i.test(lines[j]) || /^---+$/.test(lines[j].trim()))) {
+        if (
+          j > i &&
+          (/(?:🔹\s*)?Đoạn\s*#?\s*\d+/i.test(lines[j]) ||
+            /TỔNG HỢP/i.test(lines[j]) ||
+            /^---+$/.test(lines[j].trim()))
+        ) {
           break;
         }
         chunk.push(lines[j]);
       }
       fallback.push(chunk.join("\n").trim());
-      if (fallback.length >= 3) break;
+      if (fallback.length >= 4) break;
     }
   }
 
   const merged = fromSegments.length ? fromSegments : fallback;
-  return [merged[0] ?? "", merged[1] ?? "", merged[2] ?? ""];
+  return [
+    merged[0] ?? "",
+    merged[1] ?? "",
+    merged[2] ?? "",
+    merged[3] ?? "",
+  ];
 }
 
 export function splitGeminiContent(raw: string): SplitFourResult {
   const text = raw.replace(/\r\n/g, "\n").trim();
-  const [caption1, caption2, caption3] = extractCaptions(text);
+  const [caption1, caption2, caption3, caption4] = extractCaptions(text);
   return {
     times: extractTimes(text),
     caption1,
     caption2,
     caption3,
+    caption4,
   };
 }

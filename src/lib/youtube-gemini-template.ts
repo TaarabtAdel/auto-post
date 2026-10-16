@@ -23,9 +23,9 @@ Trình bày bảng với đúng số đoạn đã tính ở Bước 1:
 | # | Thời điểm (mm:ss - mm:ss) bắt | Điều gì xảy ra + Vì sao người xem không lướt qua | Điểm khả năng viral (/10) | Nhóm nội dung (chọn 1: Hài / Drama / Hữu ích / Cảm động / Âm thanh lạ / Tiếng cười lớn) |
 
 ────────────────────────────
-BƯỚC 3 — CHỌN RA 3 ĐOẠN MẠNH NHẤT
+BƯỚC 3 — CHỌN RA 4 ĐOẠN MẠNH NHẤT
 ────────────────────────────
-Lấy 3 đoạn điểm cao nhất từ bảng ở Bước 2, trình bày riêng từng đoạn:
+Lấy 4 đoạn điểm cao nhất từ bảng ở Bước 2, trình bày riêng từng đoạn:
 
 🔹 Đoạn #X
 - Khung thời gian:
@@ -53,7 +53,7 @@ TIÊU CHÍ LOẠI TRỪ (áp dụng xuyên suốt)
 ────────────────────────────
 ✗ Loại bỏ đoạn nào cần xem video gốc mới hiểu được
 ✓ Ưu tiên đoạn có: bất ngờ/twist, cảm xúc bộc phát rõ (sốc, xúc động, bật cười), âm thanh tự nhiên đặc biệt, hoặc câu nói gây tranh luận/đồng cảm mạnh
-✗ Không tự bịa thêm chi tiết ngoài transcript được cung cấp. Tổng hợp lại thời gian viral 3 đoạn hay nhất theo cú pháp : mm:ss-mm:ss,mm:ss-mm:ss`;
+✗ Không tự bịa thêm chi tiết ngoài transcript được cung cấp. Tổng hợp lại thời gian viral 4 đoạn hay nhất theo cú pháp : mm:ss-mm:ss,mm:ss-mm:ss,mm:ss-mm:ss,mm:ss-mm:ss`;
 
 export function buildYouTubeGeminiPrompt(
   template: string,
