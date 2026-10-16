@@ -57,7 +57,7 @@ function ContentBox({
   onCreate: () => void;
 }) {
   return (
-    <div className="flex flex-col min-h-[180px]">
+    <div className="flex flex-col min-h-[180px] w-full h-full">
       <div className="flex items-center justify-between gap-2 mb-1">
         <span>{label}</span>
         <div className="flex items-center gap-1">
@@ -297,7 +297,7 @@ export function SplitContentModal({
 
           {note && <p className="text-xs text-gray-600">{note}</p>}
 
-          <div className="space-y-1">
+          <div className="w-full space-y-1">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <span>1. Thời gian cắt clip (4 khung)</span>
               <button
@@ -313,11 +313,11 @@ export function SplitContentModal({
               value={draft.times}
               onChange={(e) => patch({ times: e.target.value })}
               placeholder="mm:ss-mm:ss,mm:ss-mm:ss,mm:ss-mm:ss,mm:ss-mm:ss"
-              className={`${field} w-full font-mono`}
+              className={`${field} !w-full box-border font-mono`}
             />
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
+          <div className="grid w-full grid-cols-1 sm:grid-cols-2 gap-3 pt-1 [&>*]:min-w-0">
             <ContentBox
               label="2. Caption đoạn 1"
               copied={copiedKey === "c1"}
