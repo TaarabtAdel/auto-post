@@ -9,6 +9,7 @@ import {
 } from "@/lib/youtube-url";
 import { SplitContentModal } from "@/components/split-content-modal";
 import { ui } from "@/lib/dashboard-ui";
+import { copyToClipboard } from "@/lib/copy-to-clipboard";
 import { DEFAULT_YOUTUBE_GEMINI_TEMPLATE } from "@/lib/youtube-gemini-template";
 
 const LS_KEYWORDS = "ytloc_keywords";
@@ -97,8 +98,8 @@ function commandFor(v: YouTubeSearchHit, template: string): string {
     .replaceAll("{id}", v.id);
 }
 
-async function copyText(text: string) {
-  await navigator.clipboard.writeText(text);
+async function copyText(text: string): Promise<boolean> {
+  return copyToClipboard(text);
 }
 
 function looksLikeYouTubeUrl(raw: string): boolean {
@@ -502,7 +503,14 @@ export function YouTubeLocVideo() {
       setError("Chọn ít nhất 1 video.");
       return;
     }
-    await copyText(list.map((v) => commandFor(v, template)).join("\n\n"));
+    const ok = await copyText(
+      list.map((v) => commandFor(v, template)).join("\n\n")
+    );
+    if (!ok) {
+      setError("Không copy được — hãy dùng «Xem lệnh + link» rồi Ctrl+C.");
+      return;
+    }
+    setError("");
     setStatus(`Đã copy ${list.length} lệnh.`);
   }
 
@@ -672,9 +680,8 @@ export function YouTubeLocVideo() {
         }
       })
       .join("\n");
-    try {
-      await copyText(text);
-    } catch {
+    const ok = await copyText(text);
+    if (!ok) {
       setError("Không copy được — hãy copy link thủ công.");
       return;
     }
@@ -1059,7 +1066,13 @@ export function YouTubeLocVideo() {
                     const text = selectedVideos()
                       .map((v) => commandFor(v, template))
                       .join("\n\n");
-                    await copyText(text);
+                    const ok = await copyText(text);
+                    if (!ok) {
+                      setError(
+                        "Không copy tự động — bôi đen nội dung modal rồi Ctrl+C."
+                      );
+                      return;
+                    }
                     setCmdCopied(true);
                     setTimeout(() => setCmdCopied(false), 2000);
                   }}
