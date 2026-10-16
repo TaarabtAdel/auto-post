@@ -297,17 +297,27 @@ export function SplitContentModal({
 
           {note && <p className="text-xs text-gray-600">{note}</p>}
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
-            <ContentBox
-              label="1. Thời gian cắt clip (4 khung)"
-              copied={copiedKey === "times"}
-              creating={creatingKey === "times"}
-              created={createdKeys.has("times")}
+          <div className="space-y-1">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span>1. Thời gian cắt clip (4 khung)</span>
+              <button
+                type="button"
+                className={ui.btnSm}
+                onClick={() => void copyField("times", draft.times)}
+              >
+                {copiedKey === "times" ? "Đã copy" : "Copy"}
+              </button>
+            </div>
+            <input
+              type="text"
               value={draft.times}
-              onChange={(v) => patch({ times: v })}
-              onCopy={() => copyField("times", draft.times)}
-              onCreate={() => createPost("times", draft.times)}
+              onChange={(e) => patch({ times: e.target.value })}
+              placeholder="mm:ss-mm:ss,mm:ss-mm:ss,mm:ss-mm:ss,mm:ss-mm:ss"
+              className={`${field} w-full font-mono`}
             />
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
             <ContentBox
               label="2. Caption đoạn 1"
               copied={copiedKey === "c1"}
