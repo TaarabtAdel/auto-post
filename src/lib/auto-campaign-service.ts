@@ -13,7 +13,6 @@ import {
 } from "@/lib/auto-pipeline-log";
 import { randomBytes } from "crypto";
 import { stat } from "fs/promises";
-import { join } from "path";
 import {
   UPLOAD_BUCKETS,
   ensureUserBucket,
@@ -33,6 +32,7 @@ import {
   nextAppTzDatetimeLocal,
 } from "@/lib/scheduled-at";
 import {
+  AUTO_CAMPAIGN_SEGMENT_COUNT,
   DEFAULT_SCHEDULE_HOURS,
   parsePageIdsJson,
   parseRunMode,
@@ -42,6 +42,18 @@ import {
 function stepError(step: AutoPipelineStepLabel, cause: unknown): Error {
   const msg = cause instanceof Error ? cause.message : String(cause);
   return new Error(`[${step}] ${msg}`);
+}
+
+function campaignCaptions(c: AutoCampaignRow): string[] {
+  return [c.caption1, c.caption2, c.caption3, c.caption4 ?? ""];
+}
+
+function campaignPostIds(c: AutoCampaignRow): (string | null)[] {
+  return [c.postId1, c.postId2, c.postId3, c.postId4 ?? null];
+}
+
+function campaignReelPaths(c: AutoCampaignRow): (string | null)[] {
+  return [c.reelPath1, c.reelPath2, c.reelPath3, c.reelPath4 ?? null];
 }
 
 export async function getOwnedCampaign(
@@ -65,11 +77,11 @@ export function validateCampaignPlan(
   c: AutoCampaignRow,
   opts?: ValidateCampaignPlanOptions
 ): string | null {
-  if (!c.caption1.trim() || !c.caption2.trim() || !c.caption3.trim()) {
-    return "Thiếu caption (bước Dán Gemini).";
+  if (campaignCaptions(c).some((cap) => !cap.trim())) {
+    return "Thiếu caption (cần đủ 4 đoạn — bước Dán Gemini).";
   }
-  if (parseCutRanges(c.times).length !== 3) {
-    return "Cần đúng 3 khung thời gian cắt clip.";
+  if (parseCutRanges(c.times).length !== AUTO_CAMPAIGN_SEGMENT_COUNT) {
+    return `Cần đúng ${AUTO_CAMPAIGN_SEGMENT_COUNT} khung thời gian cắt clip.`;
   }
   if (!c.backgroundPath) {
     return "Thiếu ảnh nền.";
@@ -134,62 +146,61 @@ export async function createCampaignPosts(campaign: AutoCampaignRow): Promise<{
   postId1: string;
   postId2: string;
   postId3: string;
+  postId4: string;
   batchId: string;
 }> {
-  if (campaign.postId1 && campaign.postId2 && campaign.postId3) {
-    const existingIds = [campaign.postId1, campaign.postId2, campaign.postId3];
-    const firstComment = campaign.firstComment?.trim() || null;
-    for (const postId of existingIds) {
-      await db.update(post).set({ firstComment }).where(eq(post.id, postId));
-    }
-    await attachCampaignPagesToPosts(campaign, existingIds);
-    return {
-      postId1: campaign.postId1,
-      postId2: campaign.postId2,
-      postId3: campaign.postId3,
-      batchId: campaign.batchId || randomBytes(16).toString("hex"),
-    };
-  }
-
-  const captions = [campaign.caption1, campaign.caption2, campaign.caption3].map(
-    (c) => c.trim()
-  );
+  const captions = campaignCaptions(campaign).map((c) => c.trim());
   if (captions.some((c) => !c)) {
-    throw new Error("Cần đủ 3 caption.");
+    throw new Error(`Cần đủ ${AUTO_CAMPAIGN_SEGMENT_COUNT} caption.`);
   }
 
   const batchId = campaign.batchId || randomBytes(16).toString("hex");
   const firstComment = campaign.firstComment?.trim() || null;
-  const ids: string[] = [];
+  const ids = [...campaignPostIds(campaign)];
 
-  for (const content of captions) {
+  for (let i = 0; i < AUTO_CAMPAIGN_SEGMENT_COUNT; i++) {
+    if (ids[i]) {
+      await db
+        .update(post)
+        .set({ firstComment, content: captions[i] })
+        .where(eq(post.id, ids[i]!));
+      continue;
+    }
     const postId = randomBytes(16).toString("hex");
     await db.insert(post).values({
       id: postId,
       userId: campaign.userId,
-      content,
+      content: captions[i],
       firstComment,
       status: "draft",
       batchId,
     });
-    ids.push(postId);
+    ids[i] = postId;
   }
 
-  await attachCampaignPagesToPosts(campaign, ids);
+  const finalIds = ids as string[];
+  await attachCampaignPagesToPosts(campaign, finalIds);
 
   await db
     .update(autoCampaign)
     .set({
       batchId,
-      postId1: ids[0],
-      postId2: ids[1],
-      postId3: ids[2],
+      postId1: finalIds[0],
+      postId2: finalIds[1],
+      postId3: finalIds[2],
+      postId4: finalIds[3],
       status: "posts_created",
       errorMessage: null,
     })
     .where(eq(autoCampaign.id, campaign.id));
 
-  return { postId1: ids[0], postId2: ids[1], postId3: ids[2], batchId };
+  return {
+    postId1: finalIds[0],
+    postId2: finalIds[1],
+    postId3: finalIds[2],
+    postId4: finalIds[3],
+    batchId,
+  };
 }
 
 async function attachCampaignPagesToPosts(
@@ -212,17 +223,14 @@ async function attachCampaignPagesToPosts(
   return pageIds;
 }
 
-/** Gắn lại Fanpage plan vào 3 bài đã tạo (khi sửa plan). */
+/** Gắn lại Fanpage plan vào các bài đã tạo (khi sửa plan). */
 export async function syncExistingCampaignPostPages(
   campaign: AutoCampaignRow
 ): Promise<void> {
-  if (!campaign.postId1 || !campaign.postId2 || !campaign.postId3) return;
+  const postIds = campaignPostIds(campaign).filter((p): p is string => !!p);
+  if (postIds.length === 0) return;
   if (parsePageIdsJson(campaign.facebookPageIds).length === 0) return;
-  await attachCampaignPagesToPosts(campaign, [
-    campaign.postId1,
-    campaign.postId2,
-    campaign.postId3,
-  ]);
+  await attachCampaignPagesToPosts(campaign, postIds);
 }
 
 async function attachVideoToPost(
@@ -248,20 +256,22 @@ export async function renderCampaignReels(
   campaign: AutoCampaignRow,
   opts: { aspectRatio?: AspectRatioId; flipVideo?: boolean; videoVolume?: number }
 ): Promise<string[]> {
-  if (!campaign.postId1 || !campaign.postId2 || !campaign.postId3) {
-    throw new Error("Chưa tạo 3 bài viết.");
+  const postIds = campaignPostIds(campaign);
+  if (postIds.some((p) => !p)) {
+    throw new Error(`Chưa tạo đủ ${AUTO_CAMPAIGN_SEGMENT_COUNT} bài viết.`);
   }
-  if (campaign.reelPath1 && campaign.reelPath2 && campaign.reelPath3) {
-    return [campaign.reelPath1, campaign.reelPath2, campaign.reelPath3];
+  const existingReels = campaignReelPaths(campaign);
+  if (existingReels.every((p) => !!p)) {
+    return existingReels as string[];
   }
   if (!campaign.backgroundPath || !campaign.sourceVideoPath) {
     throw new Error("Thiếu ảnh nền hoặc video full.");
   }
 
   const cuts = parseCutRanges(campaign.times);
-  if (cuts.length !== 3) {
+  if (cuts.length !== AUTO_CAMPAIGN_SEGMENT_COUNT) {
     throw new Error(
-      `Cần đúng 3 khung thời gian (hiện có ${cuts.length}).`
+      `Cần đúng ${AUTO_CAMPAIGN_SEGMENT_COUNT} khung thời gian (hiện có ${cuts.length}).`
     );
   }
 
@@ -277,19 +287,18 @@ export async function renderCampaignReels(
     outputDir: userDir,
   });
 
-  if (clips.length !== 3) {
-    throw new Error("Render không trả đủ 3 video.");
+  if (clips.length !== AUTO_CAMPAIGN_SEGMENT_COUNT) {
+    throw new Error(`Render không trả đủ ${AUTO_CAMPAIGN_SEGMENT_COUNT} video.`);
   }
 
-  const postIds = [campaign.postId1, campaign.postId2, campaign.postId3];
   const reelPaths: string[] = [];
 
-  for (let i = 0; i < 3; i++) {
+  for (let i = 0; i < AUTO_CAMPAIGN_SEGMENT_COUNT; i++) {
     const c = clips[i];
     const fileName = c.outputPath.split(/[/\\]/).pop() || "reel.mp4";
     const rel = uploadRelativePath(UPLOAD_BUCKETS.reels, userId, fileName);
     const st = await stat(c.outputPath);
-    await attachVideoToPost(postIds[i], rel, fileName, st.size);
+    await attachVideoToPost(postIds[i]!, rel, fileName, st.size);
     reelPaths.push(rel);
   }
 
@@ -299,6 +308,7 @@ export async function renderCampaignReels(
       reelPath1: reelPaths[0],
       reelPath2: reelPaths[1],
       reelPath3: reelPaths[2],
+      reelPath4: reelPaths[3],
       status: "rendered",
       errorMessage: null,
     })
@@ -312,8 +322,9 @@ export async function scheduleCampaignPosts(
   facebookPageIds?: string[],
   scheduleHours?: number[]
 ): Promise<void> {
-  if (!campaign.postId1 || !campaign.postId2 || !campaign.postId3) {
-    throw new Error("Chưa tạo 3 bài viết.");
+  const postIds = campaignPostIds(campaign);
+  if (postIds.some((p) => !p)) {
+    throw new Error(`Chưa tạo đủ ${AUTO_CAMPAIGN_SEGMENT_COUNT} bài viết.`);
   }
 
   const pageIds =
@@ -328,16 +339,16 @@ export async function scheduleCampaignPosts(
     throw new Error(validated.error);
   }
 
-  const postIds = [campaign.postId1, campaign.postId2, campaign.postId3];
   const batchId = campaign.batchId || randomBytes(16).toString("hex");
   const runMode = parseRunMode(campaign.runMode);
   const isTest = runMode === "test";
   const isManual = runMode === "manual";
+  const reelPaths = campaignReelPaths(campaign);
 
   if (isManual) {
     for (const postId of postIds) {
-      await replacePostFacebookPages(postId, pageIds);
-      await cancelPendingQueueForPost(postId);
+      await replacePostFacebookPages(postId!, pageIds);
+      await cancelPendingQueueForPost(postId!);
       await db
         .update(post)
         .set({
@@ -347,7 +358,7 @@ export async function scheduleCampaignPosts(
           facebookPageId: pageIds[0] ?? null,
           errorMessage: null,
         })
-        .where(eq(post.id, postId));
+        .where(eq(post.id, postId!));
     }
     autoStepLog(runMode, AUTO_PIPELINE_STEPS.PUBLISH, "TIẾN TRÌNH", {
       campaignId: campaign.id,
@@ -367,12 +378,12 @@ export async function scheduleCampaignPosts(
   }
 
   const hours =
-    scheduleHours && scheduleHours.length === 3
+    scheduleHours && scheduleHours.length === AUTO_CAMPAIGN_SEGMENT_COUNT
       ? scheduleHours
       : parseScheduleHoursJson(campaign.scheduleHours);
 
-  if (hours.length !== 3) {
-    throw new Error("Cần 3 khung giờ đăn.");
+  if (hours.length !== AUTO_CAMPAIGN_SEGMENT_COUNT) {
+    throw new Error(`Cần ${AUTO_CAMPAIGN_SEGMENT_COUNT} khung giờ đăn.`);
   }
 
   const pageRows =
@@ -387,14 +398,14 @@ export async function scheduleCampaignPosts(
           .where(inArray(facebookPage.id, pageIds))
       : [];
 
-  for (let i = 0; i < 3; i++) {
+  for (let i = 0; i < AUTO_CAMPAIGN_SEGMENT_COUNT; i++) {
     const hour = hours[i] ?? DEFAULT_SCHEDULE_HOURS[i];
     if (!Number.isFinite(hour) || hour < 0 || hour > 23) {
       throw new Error(`Giờ hẹn không hợp lệ: ${hour}`);
     }
     const iso = datetimeLocalInAppTzToIso(nextAppTzDatetimeLocal(hour));
     const scheduledDate = new Date(iso);
-    const postId = postIds[i];
+    const postId = postIds[i]!;
 
     await replacePostFacebookPages(postId, pageIds);
     await cancelPendingQueueForPost(postId);
@@ -420,7 +431,7 @@ export async function scheduleCampaignPosts(
         campaignId: campaign.id,
         sub: "Giả lập đăng (Test — không gọi Facebook API)",
         postId,
-        segment: `${i + 1}/3`,
+        segment: `${i + 1}/${AUTO_CAMPAIGN_SEGMENT_COUNT}`,
         scheduledAt: formatInAppTimezone(scheduledDate.toISOString(), true),
         pages: pageRows.map((p) => ({
           id: p.id,
@@ -428,7 +439,7 @@ export async function scheduleCampaignPosts(
           fbPageId: p.pageId,
         })),
         captionPreview: contentPreview,
-        reelPath: [campaign.reelPath1, campaign.reelPath2, campaign.reelPath3][i],
+        reelPath: reelPaths[i],
       });
     } else {
       await enqueueScheduledPostPages({
@@ -441,7 +452,7 @@ export async function scheduleCampaignPosts(
         campaignId: campaign.id,
         sub: "Đã hẹn queue đăng Fanpage",
         postId,
-        segment: `${i + 1}/3`,
+        segment: `${i + 1}/${AUTO_CAMPAIGN_SEGMENT_COUNT}`,
         scheduledAt: formatInAppTimezone(scheduledDate.toISOString(), true),
         pageCount: pageIds.length,
       });
@@ -458,7 +469,7 @@ export async function scheduleCampaignPosts(
     .where(eq(autoCampaign.id, campaign.id));
 }
 
-/** Cron: tạo 3 bài → render → hẹn queue (theo plan đã lưu). */
+/** Cron: tạo 4 bài → render → hẹn queue (theo plan đã lưu). */
 export async function executeCampaignPipeline(campaign: AutoCampaignRow): Promise<void> {
   const runMode = parseRunMode(campaign.runMode);
 
@@ -494,7 +505,7 @@ export async function executeCampaignPipeline(campaign: AutoCampaignRow): Promis
       row = (await getOwnedCampaign(campaign.id, campaign.userId))!;
       autoStepLog(runMode, activeStep, "XONG", {
         campaignId: campaign.id,
-        postIds: [row.postId1, row.postId2, row.postId3],
+        postIds: campaignPostIds(row),
       });
     } catch (e) {
       autoStepLog(runMode, activeStep, "LỖI", {
@@ -517,7 +528,7 @@ export async function executeCampaignPipeline(campaign: AutoCampaignRow): Promis
       row = (await getOwnedCampaign(campaign.id, campaign.userId))!;
       autoStepLog(runMode, activeStep, "XONG", {
         campaignId: campaign.id,
-        reelPaths: [row.reelPath1, row.reelPath2, row.reelPath3],
+        reelPaths: campaignReelPaths(row),
       });
     } catch (e) {
       autoStepLog(runMode, activeStep, "LỖI", {
@@ -542,7 +553,7 @@ export async function executeCampaignPipeline(campaign: AutoCampaignRow): Promis
       await scheduleCampaignPosts(row);
       autoStepLog(runMode, activeStep, "XONG", {
         campaignId: campaign.id,
-        segments: 3,
+        segments: AUTO_CAMPAIGN_SEGMENT_COUNT,
       });
     } catch (e) {
       autoStepLog(runMode, activeStep, "LỖI", {
@@ -582,9 +593,7 @@ export async function deleteOwnedCampaign(id: string, userId: string): Promise<v
     throw new Error("Campaign đang chạy — không xóa được.");
   }
 
-  const postIds = [row.postId1, row.postId2, row.postId3].filter(
-    (p): p is string => !!p
-  );
+  const postIds = campaignPostIds(row).filter((p): p is string => !!p);
 
   for (const postId of postIds) {
     await cancelPendingQueueForPost(postId);

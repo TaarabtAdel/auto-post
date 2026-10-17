@@ -53,7 +53,7 @@ export function AutoPlansList() {
     if (c.status !== "planned") return;
     if (
       !window.confirm(
-        `Chạy ngay plan "${c.name || "AUTO"}"?\nTạo bài → render reel → hẹn đăng (có thể mất vài phút).`
+        `Chạy ngay plan "${c.name || "AUTO"}"?\nTạo 4 bài → render 4 reel → hẹn đăng (có thể mất vài phút).`
       )
     ) {
       return;

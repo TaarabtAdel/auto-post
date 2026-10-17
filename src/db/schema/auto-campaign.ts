@@ -34,9 +34,11 @@ export const autoCampaign = sqliteTable("auto_campaign", {
   caption1: text("caption1").notNull().default(""),
   caption2: text("caption2").notNull().default(""),
   caption3: text("caption3").notNull().default(""),
+  caption4: text("caption4").notNull().default(""),
   postId1: text("post_id1"),
   postId2: text("post_id2"),
   postId3: text("post_id3"),
+  postId4: text("post_id4"),
   sourceVideoPath: text("source_video_path"),
   /** 1 = tải video bằng yt-dlp (link plan) thay vì upload tay */
   autoDownloadVideo: integer("auto_download_video").notNull().default(0),
@@ -44,6 +46,7 @@ export const autoCampaign = sqliteTable("auto_campaign", {
   reelPath1: text("reel_path1"),
   reelPath2: text("reel_path2"),
   reelPath3: text("reel_path3"),
+  reelPath4: text("reel_path4"),
   workspaceAppId: text("workspace_app_id"),
   /** JSON string[] */
   facebookPageIds: text("facebook_page_ids"),

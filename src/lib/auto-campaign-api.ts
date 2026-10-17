@@ -40,11 +40,12 @@ export type AutoCampaignDto = {
   caption1: string;
   caption2: string;
   caption3: string;
-  postIds: [string | null, string | null, string | null];
+  caption4: string;
+  postIds: [string | null, string | null, string | null, string | null];
   sourceVideoPath: string | null;
   autoDownloadVideo: boolean;
   backgroundPath: string | null;
-  reelPaths: [string | null, string | null, string | null];
+  reelPaths: [string | null, string | null, string | null, string | null];
   workspaceAppId: string | null;
   facebookPageIds: string[];
   scheduleHours: number[];
@@ -73,11 +74,12 @@ export function autoCampaignToDto(row: AutoCampaignRow): AutoCampaignDto {
     caption1: row.caption1,
     caption2: row.caption2,
     caption3: row.caption3,
-    postIds: [row.postId1, row.postId2, row.postId3],
+    caption4: row.caption4 ?? "",
+    postIds: [row.postId1, row.postId2, row.postId3, row.postId4 ?? null],
     sourceVideoPath: row.sourceVideoPath,
     autoDownloadVideo: Boolean(row.autoDownloadVideo),
     backgroundPath: row.backgroundPath,
-    reelPaths: [row.reelPath1, row.reelPath2, row.reelPath3],
+    reelPaths: [row.reelPath1, row.reelPath2, row.reelPath3, row.reelPath4 ?? null],
     workspaceAppId: row.workspaceAppId,
     facebookPageIds: parsePageIdsJson(row.facebookPageIds),
     scheduleHours: parseScheduleHoursJson(row.scheduleHours),

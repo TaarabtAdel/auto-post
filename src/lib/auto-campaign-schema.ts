@@ -28,14 +28,17 @@ export function migrateAutoCampaignSchema() {
       caption1 TEXT NOT NULL DEFAULT '',
       caption2 TEXT NOT NULL DEFAULT '',
       caption3 TEXT NOT NULL DEFAULT '',
+      caption4 TEXT NOT NULL DEFAULT '',
       post_id1 TEXT,
       post_id2 TEXT,
       post_id3 TEXT,
+      post_id4 TEXT,
       source_video_path TEXT,
       background_path TEXT,
       reel_path1 TEXT,
       reel_path2 TEXT,
       reel_path3 TEXT,
+      reel_path4 TEXT,
       status TEXT NOT NULL DEFAULT 'draft',
       error_message TEXT,
       created_at INTEGER NOT NULL,
@@ -52,6 +55,9 @@ export function migrateAutoCampaignSchema() {
   addColumnIfMissing(sqlite, "auto_campaign", "execute_at", "INTEGER");
   addColumnIfMissing(sqlite, "auto_campaign", "run_mode", "TEXT NOT NULL DEFAULT 'live'");
   addColumnIfMissing(sqlite, "auto_campaign", "auto_download_video", "INTEGER NOT NULL DEFAULT 0");
+  addColumnIfMissing(sqlite, "auto_campaign", "caption4", "TEXT NOT NULL DEFAULT ''");
+  addColumnIfMissing(sqlite, "auto_campaign", "post_id4", "TEXT");
+  addColumnIfMissing(sqlite, "auto_campaign", "reel_path4", "TEXT");
 
   sqlite.exec(`
     CREATE INDEX IF NOT EXISTS auto_campaign_planned_idx ON auto_campaign (status, execute_at);

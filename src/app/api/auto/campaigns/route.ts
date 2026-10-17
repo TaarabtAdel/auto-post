@@ -39,6 +39,7 @@ export async function POST(request: NextRequest) {
     caption1?: string;
     caption2?: string;
     caption3?: string;
+    caption4?: string;
     sourceVideoPath?: string;
     backgroundPath?: string;
     firstComment?: string;
@@ -71,6 +72,7 @@ export async function POST(request: NextRequest) {
     caption1: body.caption1?.trim() ?? "",
     caption2: body.caption2?.trim() ?? "",
     caption3: body.caption3?.trim() ?? "",
+    caption4: body.caption4?.trim() ?? "",
     sourceVideoPath: body.sourceVideoPath?.trim() || null,
     backgroundPath: body.backgroundPath?.trim() || null,
     firstComment: body.firstComment?.trim() || null,

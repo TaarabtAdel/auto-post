@@ -76,6 +76,7 @@ export function AutoWizard({ initialCampaignId = null }: AutoWizardProps) {
   const [caption1, setCaption1] = useState("");
   const [caption2, setCaption2] = useState("");
   const [caption3, setCaption3] = useState("");
+  const [caption4, setCaption4] = useState("");
 
   const [backgroundPath, setBackgroundPath] = useState<string | null>(null);
   const [backgroundName, setBackgroundName] = useState("");
@@ -111,6 +112,7 @@ export function AutoWizard({ initialCampaignId = null }: AutoWizardProps) {
     setCaption1(c.caption1);
     setCaption2(c.caption2);
     setCaption3(c.caption3);
+    setCaption4(c.caption4 ?? "");
     setBackgroundPath(c.backgroundPath);
     setSourceVideoPath(c.sourceVideoPath);
     setAutoDownloadVideo(Boolean(c.autoDownloadVideo));
@@ -118,7 +120,7 @@ export function AutoWizard({ initialCampaignId = null }: AutoWizardProps) {
     setSourceVideoName(c.sourceVideoPath?.split("/").pop() ?? "");
     if (c.workspaceAppId) setWorkspaceAppId(c.workspaceAppId);
     if (c.facebookPageIds.length) setSelectedPageIds(new Set(c.facebookPageIds));
-    if (c.scheduleHours.length === 3) setScheduleHours(c.scheduleHours);
+    if (c.scheduleHours.length === 4) setScheduleHours(c.scheduleHours);
     if (c.executeAt) {
       setExecuteAtLocal(scheduledAtToDatetimeLocal(scheduledAtToIso(c.executeAt)));
     }
@@ -139,6 +141,7 @@ export function AutoWizard({ initialCampaignId = null }: AutoWizardProps) {
     setCaption1("");
     setCaption2("");
     setCaption3("");
+    setCaption4("");
     setSourceVideoPath(null);
     setSourceVideoName("");
     setAutoDownloadVideo(false);
@@ -215,6 +218,7 @@ export function AutoWizard({ initialCampaignId = null }: AutoWizardProps) {
       caption1: caption1.trim(),
       caption2: caption2.trim(),
       caption3: caption3.trim(),
+      caption4: caption4.trim(),
       sourceVideoPath,
       autoDownloadVideo,
       backgroundPath,
@@ -324,8 +328,7 @@ export function AutoWizard({ initialCampaignId = null }: AutoWizardProps) {
       setError("Không tách được. Kiểm tra lại nội dung dán.");
       return;
     }
-    // AUTO vẫn dùng 3 bài — lấy 3 khung / caption đầu nếu Gemini trả 4.
-    const ranges = parseCutRanges(next.times).slice(0, 3);
+    const ranges = parseCutRanges(next.times).slice(0, 4);
     setTimes(
       ranges.length > 0
         ? ranges.map((r) => r.label).join(",")
@@ -334,8 +337,9 @@ export function AutoWizard({ initialCampaignId = null }: AutoWizardProps) {
     setCaption1(next.caption1);
     setCaption2(next.caption2);
     setCaption3(next.caption3);
+    setCaption4(next.caption4);
     setNote(
-      `Đã tách — AUTO lấy ${ranges.length || parseCutRanges(next.times).length} khung cắt (tối đa 3). Bấm "Lưu & tiếp".`
+      `Đã tách — ${ranges.length || parseCutRanges(next.times).length} khung cắt / 4 caption. Bấm "Lưu & tiếp".`
     );
   }
 
@@ -472,7 +476,7 @@ export function AutoWizard({ initialCampaignId = null }: AutoWizardProps) {
     setError("");
     if (
       !window.confirm(
-        "Chạy ngay: tạo 3 bài → render reel → gắn Fanpage, lưu nháp trên /posts.\nKhông hẹn giờ, không vào queue. Có thể mất vài phút."
+        "Chạy ngay: tạo 4 bài → render reel → gắn Fanpage, lưu nháp trên /posts.\nKhông hẹn giờ, không vào queue. Có thể mất vài phút."
       )
     ) {
       return;
@@ -581,7 +585,7 @@ export function AutoWizard({ initialCampaignId = null }: AutoWizardProps) {
       {!locked && (
         <p className={`text-sm ${ui.hint}`}>
           Các bước 1–5 chỉ <strong>lưu kế hoạch</strong> vào CSDL. Ở bước 6 bạn hẹn{" "}
-          <strong>giờ chạy AUTO</strong> — đến giờ cron sẽ tự: tạo 3 bài → render reel → hẹn
+          <strong>giờ chạy AUTO</strong> — đến giờ cron sẽ tự: tạo 4 bài → render reel → hẹn
           đăng queue (không làm tay nữa).
         </p>
       )}
@@ -710,7 +714,7 @@ export function AutoWizard({ initialCampaignId = null }: AutoWizardProps) {
             Tách 4 nội dung
           </button>
           <label className="block text-sm">
-            Bình luận đầu tiên (chung cho cả 3 bài)
+            Bình luận đầu tiên (chung cho cả 4 bài)
             <textarea
               value={firstComment}
               onChange={(e) => setFirstComment(e.target.value)}
@@ -736,6 +740,7 @@ export function AutoWizard({ initialCampaignId = null }: AutoWizardProps) {
                 ["Caption 1", caption1, setCaption1],
                 ["Caption 2", caption2, setCaption2],
                 ["Caption 3", caption3, setCaption3],
+                ["Caption 4", caption4, setCaption4],
               ] as const
             ).map(([label, val, setVal]) => (
               <label key={label} className="block text-sm">
@@ -756,11 +761,16 @@ export function AutoWizard({ initialCampaignId = null }: AutoWizardProps) {
             disabled={busy || locked}
             onClick={() =>
               void goNext(2, () => {
-                if (!caption1.trim() || !caption2.trim() || !caption3.trim()) {
-                  return "Cần 3 caption (tách hoặc nhập tay).";
+                if (
+                  !caption1.trim() ||
+                  !caption2.trim() ||
+                  !caption3.trim() ||
+                  !caption4.trim()
+                ) {
+                  return "Cần 4 caption (tách hoặc nhập tay).";
                 }
-                if (parseCutRanges(times).length !== 3) {
-                  return "Cần đúng 3 khung thời gian cắt.";
+                if (parseCutRanges(times).length !== 4) {
+                  return "Cần đúng 4 khung thời gian cắt.";
                 }
                 return null;
               })
@@ -782,7 +792,7 @@ export function AutoWizard({ initialCampaignId = null }: AutoWizardProps) {
               <p className="whitespace-pre-wrap mt-1">{firstComment}</p>
             </div>
           )}
-          {[caption1, caption2, caption3].map((cap, i) => (
+          {[caption1, caption2, caption3, caption4].map((cap, i) => (
             <div key={i} className={`${ui.card} ${ui.cardPadSm}`}>
               <p className="text-xs font-semibold text-gray-500 mb-2">Bài đoạn {i + 1}</p>
               <p className="text-sm whitespace-pre-wrap line-clamp-[12]">{cap || "—"}</p>
@@ -949,7 +959,7 @@ export function AutoWizard({ initialCampaignId = null }: AutoWizardProps) {
             disabled={locked}
           />
           {runMode !== "manual" && (
-            <div className="grid sm:grid-cols-3 gap-3 pt-2 border-t border-gray-100">
+            <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3 pt-2 border-t border-gray-100">
               {scheduleHours.map((h, i) => (
                 <label key={i} className="text-sm block">
                   Giờ đăn đoạn {i + 1} (VN, sau khi AUTO chạy)
@@ -1006,15 +1016,15 @@ export function AutoWizard({ initialCampaignId = null }: AutoWizardProps) {
             </li>
             {runMode !== "manual" && (
               <li>
-                <span className="text-gray-500">Giờ đăn 3 đoạn:</span>{" "}
+                <span className="text-gray-500">Giờ đăn 4 đoạn:</span>{" "}
                 {scheduleHours.map((h) => `${String(h).padStart(2, "0")}:00`).join(" · ")}
               </li>
             )}
             <li>
               <span className="text-gray-500">Khi chạy sẽ:</span>{" "}
               {runMode === "manual"
-                ? "Tạo 3 bài → Render 3 reel → Gắn Fanpage → Lưu nháp (đăng tay trên /posts)"
-                : "Tạo 3 bài → Render 3 reel → Gắn Fanpage → Hẹn queue"}
+                ? "Tạo 4 bài → Render 4 reel → Gắn Fanpage → Lưu nháp (đăng tay trên /posts)"
+                : "Tạo 4 bài → Render 4 reel → Gắn Fanpage → Hẹn queue"}
             </li>
           </ul>
 

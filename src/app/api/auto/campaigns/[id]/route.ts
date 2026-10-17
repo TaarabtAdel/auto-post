@@ -63,6 +63,7 @@ export async function PATCH(request: NextRequest, { params }: Params) {
     caption1?: string;
     caption2?: string;
     caption3?: string;
+    caption4?: string;
     sourceVideoPath?: string | null;
     backgroundPath?: string | null;
     workspaceAppId?: string | null;
@@ -96,6 +97,7 @@ export async function PATCH(request: NextRequest, { params }: Params) {
   if (body.caption1 !== undefined) updates.caption1 = trimText(body.caption1);
   if (body.caption2 !== undefined) updates.caption2 = trimText(body.caption2);
   if (body.caption3 !== undefined) updates.caption3 = trimText(body.caption3);
+  if (body.caption4 !== undefined) updates.caption4 = trimText(body.caption4);
   if (body.sourceVideoPath !== undefined) {
     updates.sourceVideoPath = trimNullable(body.sourceVideoPath);
   }
