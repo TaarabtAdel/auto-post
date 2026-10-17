@@ -11,7 +11,7 @@ export default function YouTubePage() {
     <div className="space-y-6">
       <PageHeader
         title="Tìm video YouTube"
-        description="Tìm theo từ khóa, dán nhiều link, đánh dấu đã xem, tải video vào uploads hoặc copy lệnh AI."
+        description="Tìm theo từ khóa (≥ N phút), dán nhiều link. Danh sách + đã xem lưu theo tài khoản (đồng bộ mọi máy)."
       />
       <YouTubeLocVideo />
     </div>

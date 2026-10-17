@@ -95,7 +95,11 @@ export async function searchYouTubeVideos(opts: {
   assertYtdlpAvailable();
   const limit = Math.min(50, Math.max(5, opts.limit ?? 25));
   const minD = opts.minDurationSec ?? 0;
-  const maxD = opts.maxDurationSec ?? 100 * 60;
+  /** Không truyền max → không giới hạn trên (chỉ lọc tối thiểu nếu có). */
+  const maxD =
+    opts.maxDurationSec == null || !Number.isFinite(opts.maxDurationSec)
+      ? Number.POSITIVE_INFINITY
+      : opts.maxDurationSec;
 
   try {
     const raw = (await getYtdlp()(`ytsearch${limit}:${query}`, {
@@ -134,7 +138,7 @@ export async function searchYouTubeVideos(opts: {
         const d = e.durationSec;
         if (d > 0) {
           if (minD > 0 && d < minD) return false;
-          if (d > maxD) return false;
+          if (Number.isFinite(maxD) && d > maxD) return false;
         }
         return true;
       });

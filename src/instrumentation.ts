@@ -31,6 +31,9 @@ export async function register() {
     const { migratePublishSettingsSchema } = await import("@/lib/publish-settings");
     migratePublishSettingsSchema();
 
+    const { migrateYoutubeListSchema } = await import("@/lib/youtube-list-schema");
+    migrateYoutubeListSchema();
+
     const { ensureUploadBucketRoots } = await import("@/lib/upload-storage");
     await ensureUploadBucketRoots();
 

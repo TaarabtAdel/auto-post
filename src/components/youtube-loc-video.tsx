@@ -115,7 +115,7 @@ export function YouTubeLocVideo() {
   const router = useRouter();
   const [query, setQuery] = useState("");
   const [urlInput, setUrlInput] = useState("");
-  const [maxDur, setMaxDur] = useState("100:00");
+  const [minDur, setMinDur] = useState("30:00");
   const [busy, setBusy] = useState(false);
   const [addingUrl, setAddingUrl] = useState(false);
   const [status, setStatus] = useState("");
@@ -139,13 +139,35 @@ export function YouTubeLocVideo() {
   const [listPage, setListPage] = useState(1);
   const [failedLinks, setFailedLinks] = useState<FailedLink[]>([]);
   const [failedPage, setFailedPage] = useState(1);
+  const [listReady, setListReady] = useState(false);
+
+  async function persistResults(next: YouTubeSearchHit[]) {
+    try {
+      const res = await fetch("/api/youtube/list", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ results: next }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setError(
+          (data as { error?: string }).error ||
+            "Không lưu được danh sách video lên server."
+        );
+        return false;
+      }
+      localStorage.removeItem(LS_RESULTS);
+      return true;
+    } catch {
+      setError("Lỗi kết nối khi lưu danh sách video.");
+      return false;
+    }
+  }
 
   useEffect(() => {
     try {
       const kw = JSON.parse(localStorage.getItem(LS_KEYWORDS) || "[]");
       if (Array.isArray(kw)) setKeywords(kw);
-      const r = JSON.parse(localStorage.getItem(LS_RESULTS) || "[]");
-      if (Array.isArray(r)) setResults(r);
       const t = localStorage.getItem(LS_TEMPLATE);
       if (t) setTemplate(t);
     } catch {
@@ -160,7 +182,62 @@ export function YouTubeLocVideo() {
       // ignore
     }
 
+    let localResults: YouTubeSearchHit[] = [];
+    try {
+      const r = JSON.parse(localStorage.getItem(LS_RESULTS) || "[]");
+      if (Array.isArray(r)) localResults = r;
+    } catch {
+      // ignore
+    }
+
     (async () => {
+      try {
+        const listRes = await fetch("/api/youtube/list");
+        const listData = await listRes.json();
+        if (listRes.ok) {
+          let serverList = (listData.results ?? []) as YouTubeSearchHit[];
+          if (serverList.length === 0 && localResults.length > 0) {
+            const sync = await fetch("/api/youtube/list", {
+              method: "PUT",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ results: localResults }),
+            });
+            if (sync.ok) {
+              serverList = localResults;
+              localStorage.removeItem(LS_RESULTS);
+            } else {
+              setResults(localResults);
+            }
+          } else if (serverList.length > 0 && localResults.length > 0) {
+            const seen = new Set(serverList.map((h) => h.id));
+            const extras = localResults.filter((h) => h?.id && !seen.has(h.id));
+            if (extras.length > 0) {
+              const merged = [...serverList, ...extras];
+              const sync = await fetch("/api/youtube/list", {
+                method: "PUT",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ results: merged }),
+              });
+              if (sync.ok) {
+                serverList = merged;
+                localStorage.removeItem(LS_RESULTS);
+              }
+            } else {
+              localStorage.removeItem(LS_RESULTS);
+            }
+          } else if (serverList.length > 0) {
+            localStorage.removeItem(LS_RESULTS);
+          }
+          setResults(serverList);
+        } else if (localResults.length) {
+          setResults(localResults);
+        }
+      } catch {
+        if (localResults.length) setResults(localResults);
+      } finally {
+        setListReady(true);
+      }
+
       try {
         const res = await fetch("/api/youtube/watched");
         const data = await res.json();
@@ -226,7 +303,7 @@ export function YouTubeLocVideo() {
       }
     }
     setResults(merged);
-    localStorage.setItem(LS_RESULTS, JSON.stringify(merged));
+    void persistResults(merged);
     return merged;
   }
 
@@ -427,7 +504,7 @@ export function YouTubeLocVideo() {
           action: "search",
           query: q,
           limit: 30,
-          maxDurationSec: parseMaxDuration(maxDur) || 100 * 60,
+          minDurationSec: parseMaxDuration(minDur) || 30 * 60,
         }),
       });
       const data = await res.json();
@@ -447,7 +524,7 @@ export function YouTubeLocVideo() {
       setQuery(q);
       setSelected(new Set());
       setStatus(
-        `Tìm thấy ${hits.length} video (thời lượng ≤ ${maxDur}, hoặc chưa có metadata). Tổng kho: ${merged.length}.`
+        `Tìm thấy ${hits.length} video (thời lượng ≥ ${minDur}, hoặc chưa có metadata). Tổng kho: ${merged.length}.`
       );
     } catch {
       setError("Lỗi kết nối khi tìm kiếm.");
@@ -473,7 +550,7 @@ export function YouTubeLocVideo() {
     if (ids.length === 0) return;
     setResults((prev) => {
       const next = prev.filter((v) => !ids.includes(v.id));
-      localStorage.setItem(LS_RESULTS, JSON.stringify(next));
+      void persistResults(next);
       return next;
     });
     setSelected((prev) => {
@@ -700,8 +777,12 @@ export function YouTubeLocVideo() {
     <div className={`${ui.card} ${ui.cardPad} space-y-4 text-sm`}>
       <p className={ui.hint}>
         Bấm tên video: sao chép lệnh kèm link · Nhấp đúp: mở YouTube · Tìm kiếm lọc
-        video dài hơn mức «Tối đa» (30 / 60 / 100 / 180 phút)
+        video <strong>≥</strong> mức chọn (15 / 30 / 60 / 100 / 180 phút). Danh sách
+        lưu theo tài khoản trên server.
       </p>
+      {!listReady && (
+        <p className="text-xs text-gray-500">Đang tải danh sách từ server…</p>
+      )}
 
       <div className="flex flex-wrap gap-2">
         <input
@@ -712,16 +793,17 @@ export function YouTubeLocVideo() {
           placeholder="Nhập từ khóa tìm kiếm YouTube..."
         />
         <select
-          value={maxDur}
-          onChange={(e) => setMaxDur(e.target.value)}
+          value={minDur}
+          onChange={(e) => setMinDur(e.target.value)}
           className={ui.select}
-          title="Bỏ qua video dài hơn mức này"
-          aria-label="Thời lượng tối đa"
+          title="Chỉ giữ video dài từ mức này trở lên"
+          aria-label="Thời lượng tối thiểu"
         >
-          <option value="30:00">≤ 30 phút</option>
-          <option value="60:00">≤ 60 phút</option>
-          <option value="100:00">≤ 100 phút</option>
-          <option value="180:00">≤ 180 phút</option>
+          <option value="15:00">≥ 15 phút</option>
+          <option value="30:00">≥ 30 phút</option>
+          <option value="60:00">≥ 60 phút</option>
+          <option value="100:00">≥ 100 phút</option>
+          <option value="180:00">≥ 180 phút</option>
         </select>
         <button
           type="button"
