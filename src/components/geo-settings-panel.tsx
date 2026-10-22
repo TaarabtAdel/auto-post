@@ -47,14 +47,24 @@ type Machine = {
   command: { kind: string; status: string; note: string; createdAt: number; updatedAt: number } | null;
 };
 
-const COMMAND_LABEL: Record<string, string> = {
-  pending: "Đã gửi lệnh tắt, chờ máy nhận",
-  delivered: "Máy đã nhận, đang đếm 60 giây",
-  done: "Máy đã tắt",
-  canceled: "Người dùng trên máy đã huỷ",
-  rejected: "Máy từ chối (chưa cho phép tắt từ xa)",
-  failed: "Tắt máy lỗi",
-  expired: "Lệnh hết hạn (máy không nhận trong 10 phút)",
+const COMMAND_LABEL: Record<string, Record<string, string>> = {
+  shutdown: {
+    pending: "Đã gửi lệnh tắt, chờ máy nhận",
+    delivered: "Máy đã nhận, đang đếm 60 giây",
+    done: "Máy đã tắt",
+    canceled: "Người dùng trên máy đã huỷ",
+    rejected: "Máy từ chối (chưa cho phép tắt từ xa)",
+    failed: "Tắt máy lỗi",
+    expired: "Lệnh hết hạn (máy không nhận trong 10 phút)",
+  },
+  reload: {
+    pending: "Đã gửi lệnh dừng & nạp lại, chờ máy nhận",
+    delivered: "Máy đã nhận, đang dừng tab và nạp lại (app bản cũ không hỗ trợ lệnh này)",
+    done: "Đã nạp lại dữ liệu",
+    canceled: "Bỏ qua (đang nạp lại từ lệnh trước)",
+    failed: "Nạp lại lỗi",
+    expired: "Lệnh hết hạn (máy không nhận trong 10 phút)",
+  },
 };
 
 function ago(ms: number) {
@@ -242,6 +252,18 @@ export function GeoSettingsPanel() {
     }
   }
 
+  async function reloadMachines(machine?: string) {
+    const who = machine ? `máy ${machine}` : "mọi máy đang online";
+    if (!window.confirm(`Dừng & nạp lại ${who}?\n\nCác tab đang chạy dừng, trả proxy, app kéo lại toàn bộ dữ liệu (bài / proxy mới) rồi chạy lại.`)) return;
+    try {
+      const r = await api<Overview & { sent: number }>({ action: "reload", machine: machine ?? "" });
+      setOverview(r);
+      setStatus({ text: `Đã gửi lệnh dừng & nạp lại tới ${r.sent} máy. Máy nhận trong khoảng 5 giây.` });
+    } catch (e) {
+      setStatus({ text: e instanceof Error ? e.message : String(e), error: true });
+    }
+  }
+
   async function releaseMachine(machine: string) {
     if (!window.confirm(`Trả mọi proxy máy ${machine} đang giữ? Chỉ nên làm khi máy đó đã tắt hẳn.`)) return;
     try {
@@ -326,7 +348,18 @@ export function GeoSettingsPanel() {
       </section>
 
       <section className={`${ui.card} ${ui.cardPad} space-y-3`}>
-        <h3 className="font-semibold text-gray-900">Máy chạy app (chế độ Host)</h3>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h3 className="font-semibold text-gray-900">Máy chạy app (chế độ Host)</h3>
+          <button
+            type="button"
+            className={ui.btnSm}
+            disabled={!overview.machines.some((m) => m.online)}
+            onClick={() => void reloadMachines()}
+            title="Dừng tab ở mọi máy online, kéo lại dữ liệu mới rồi chạy lại — dùng sau khi đổi link"
+          >
+            Dừng & nạp lại tất cả máy
+          </button>
+        </div>
         {overview.machines.length === 0 ? (
           <p className="text-sm text-gray-600">Chưa có máy nào kết nối trong 24 giờ qua.</p>
         ) : (
@@ -338,7 +371,7 @@ export function GeoSettingsPanel() {
                   <th className={ui.th}>Trạng thái</th>
                   <th className={ui.th}>Tab chạy</th>
                   <th className={ui.th}>Proxy đang giữ</th>
-                  <th className={ui.th}>Lệnh tắt máy</th>
+                  <th className={ui.th}>Lệnh gần nhất</th>
                   <th className={ui.th}></th>
                 </tr>
               </thead>
@@ -357,7 +390,7 @@ export function GeoSettingsPanel() {
                     <td className={`${ui.td} text-xs`}>
                       {m.command && m.command.status !== "replaced" ? (
                         <span title={m.command.note}>
-                          {COMMAND_LABEL[m.command.status] || m.command.status}
+                          {COMMAND_LABEL[m.command.kind]?.[m.command.status] || m.command.status}
                           {m.command.note ? `: ${m.command.note}` : ""}
                         </span>
                       ) : (
@@ -365,6 +398,15 @@ export function GeoSettingsPanel() {
                       )}
                     </td>
                     <td className={`${ui.td} text-right whitespace-nowrap space-x-2`}>
+                      <button
+                        type="button"
+                        className={ui.btnSm}
+                        disabled={!m.online}
+                        title={m.online ? "Dừng tab, kéo lại dữ liệu mới rồi chạy lại" : "Máy đang offline"}
+                        onClick={() => void reloadMachines(m.machine)}
+                      >
+                        Dừng & nạp lại
+                      </button>
                       <button
                         type="button"
                         className={ui.btnSm}
@@ -393,8 +435,9 @@ export function GeoSettingsPanel() {
           </div>
         )}
         <p className="text-xs text-gray-500">
-          Máy báo online mỗi lần đồng bộ (khoảng 5 giây). Nút Tắt máy chỉ bấm được khi máy đó đã bật “Cho phép tắt máy này từ
-          /geo” trong Cài đặt app. Lệnh tắt chỉ có hiệu lực 10 phút. Máy tắt đột ngột thì proxy tự được trả sau 3 phút.
+          Máy báo online mỗi lần đồng bộ (khoảng 5 giây). «Dừng & nạp lại»: dùng sau khi đổi Danh sách bài / proxy, để
+          tab không chạy nốt danh sách cũ. Nút Tắt máy chỉ bấm được khi máy đó đã bật “Cho phép tắt máy này từ /geo” trong
+          Cài đặt app. Lệnh chỉ có hiệu lực 10 phút. Máy tắt đột ngột thì proxy tự được trả sau 3 phút.
         </p>
       </section>
 

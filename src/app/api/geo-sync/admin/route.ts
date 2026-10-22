@@ -61,6 +61,14 @@ export async function POST(request: NextRequest) {
         store.queueCommand(user.id, target.machine, "shutdown");
         return NextResponse.json({ ok: true, ...settings.overview(user.id), ...keyInfo(user.id) });
       }
+      case "reload": {
+        // Dừng tab đang chạy, kéo lại toàn bộ dữ liệu (bài / proxy mới) rồi chạy lại. machine rỗng = mọi máy online.
+        const online = settings.overview(user.id).machines.filter((m) => m.online);
+        const targets = body.machine ? online.filter((m) => m.machine === body.machine) : online;
+        if (!targets.length) throw Error(body.machine ? "Máy này đang offline." : "Không có máy nào online.");
+        for (const m of targets) store.queueCommand(user.id, m.machine, "reload");
+        return NextResponse.json({ ok: true, sent: targets.length, ...settings.overview(user.id), ...keyInfo(user.id) });
+      }
       case "rotateKey":
         store.rotateUserKey(user.id);
         return NextResponse.json({ ok: true, ...keyInfo(user.id) });

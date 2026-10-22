@@ -615,7 +615,10 @@ export function listMachines(userId: string): MachineRow[] {
 
 export type CommandRow = { id: string; machine: string; kind: string; status: string; note: string; createdAt: number; updatedAt: number };
 
-export function queueCommand(userId: string, machineRaw: unknown, kind: "shutdown") {
+/** shutdown: tắt máy (máy phải cho phép). reload: dừng các tab, kéo lại dữ liệu mới rồi chạy lại. */
+export type CommandKind = "shutdown" | "reload";
+
+export function queueCommand(userId: string, machineRaw: unknown, kind: CommandKind) {
   const machine = clip(machineRaw, 80);
   if (!machine) throw Error("Thiếu máy.");
   const id = randomBytes(8).toString("hex");
