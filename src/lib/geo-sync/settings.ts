@@ -345,11 +345,11 @@ export type ProxyRow = {
 };
 
 /** Bảng proxy giống app: Chưa thử · Không · Đang dùng (máy nào giữ) · Live. */
-export function inspectProxies(text: unknown) {
+export function inspectProxies(userId: string, text: unknown) {
   const { proxies, skipped } = parseProxySource(text);
-  const health = store.healthMap();
+  const health = store.healthMap(userId);
   const leaseBy = new Map<string, store.LeaseRow>();
-  for (const l of store.activeLeases()) if (l.key.startsWith("proxy:")) leaseBy.set(l.key.slice(6), l);
+  for (const l of store.activeLeases(userId)) if (l.key.startsWith("proxy:")) leaseBy.set(l.key.slice(6), l);
   const rows: ProxyRow[] = proxies.map((p) => {
     const row: ProxyRow = {
       line: proxyToLine(p),
@@ -379,8 +379,8 @@ export function inspectProxies(text: unknown) {
 }
 
 /** Các máy đang chạy (theo chỗ giữ còn hạn) và tổng hợp lịch sử. */
-export function overview() {
-  const snap = store.snapshot();
+export function overview(userId: string) {
+  const snap = store.snapshot(userId);
   const machines = new Map<string, { machine: string; proxies: number; ips: number; tabs: Set<string>; expiresAt: number }>();
   for (const l of snap.leases) {
     const m = machines.get(l.machine) || { machine: l.machine, proxies: 0, ips: 0, tabs: new Set<string>(), expiresAt: 0 };

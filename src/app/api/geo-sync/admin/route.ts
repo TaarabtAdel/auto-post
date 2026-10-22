@@ -5,20 +5,27 @@ import { apiUnauthorized } from "@/lib/api-unauthorized";
 import * as store from "@/lib/geo-sync/store";
 import * as settings from "@/lib/geo-sync/settings";
 
-/** Màn /geo trên auto-post: theo dõi và sửa cài đặt chung của Geo Proxy Rotator (cần đăng nhập). */
+/** Màn /geo: user đang đăng nhập theo dõi và sửa dữ liệu Geo Proxy Rotator của chính mình. */
 
 async function requireUser() {
   const session = await getAppSession({ headers: await headers() });
   return session?.user ?? null;
 }
 
+function keyInfo(userId: string) {
+  const key = store.readUserKey(userId);
+  return { userId, syncKey: key?.token ?? "", syncKeyCreatedAt: key?.createdAt ?? null };
+}
+
 export async function GET() {
-  if (!(await requireUser())) return apiUnauthorized();
-  return NextResponse.json({ ok: true, ...settings.overview(), configured: Boolean(process.env.GEO_SYNC_KEY?.trim()) });
+  const user = await requireUser();
+  if (!user) return apiUnauthorized();
+  return NextResponse.json({ ok: true, ...settings.overview(user.id), ...keyInfo(user.id) });
 }
 
 export async function POST(request: NextRequest) {
-  if (!(await requireUser())) return apiUnauthorized();
+  const user = await requireUser();
+  if (!user) return apiUnauthorized();
   let body: Record<string, unknown>;
   try {
     body = await request.json();
@@ -28,23 +35,27 @@ export async function POST(request: NextRequest) {
   try {
     switch (body.action) {
       case "inspect":
-        return NextResponse.json({ ok: true, ...settings.inspectProxies(body.proxyText) });
+        return NextResponse.json({ ok: true, ...settings.inspectProxies(user.id, body.proxyText) });
       case "save": {
         const patch = settings.settingsPatch((body.form ?? {}) as Partial<settings.SettingsForm>);
-        store.updateConfig(patch);
+        store.updateConfig(user.id, patch);
         return NextResponse.json({
           ok: true,
-          ...settings.overview(),
+          ...settings.overview(user.id),
+          ...keyInfo(user.id),
           message: `${patch.proxies.length} proxy, ${patch.articles.length} bài. Các máy chế độ Host nhận cài đặt mới trong vài giây.`,
         });
       }
       case "fetchProxies":
         return NextResponse.json({ ok: true, ...(await settings.fetchProxySources(body.sourceText)) });
       case "clear":
-        store.clear(body.what);
-        return NextResponse.json({ ok: true, ...settings.overview() });
+        store.clear(user.id, body.what);
+        return NextResponse.json({ ok: true, ...settings.overview(user.id), ...keyInfo(user.id) });
       case "releaseMachine":
-        return NextResponse.json({ ok: true, ...store.release({ machine: body.machine }) });
+        return NextResponse.json({ ok: true, ...store.release(user.id, { machine: body.machine }) });
+      case "rotateKey":
+        store.rotateUserKey(user.id);
+        return NextResponse.json({ ok: true, ...keyInfo(user.id) });
       default:
         return NextResponse.json({ error: "Thao tác không hợp lệ." }, { status: 400 });
     }

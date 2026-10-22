@@ -35,8 +35,10 @@ type Overview = {
   form: SettingsForm;
   machines: Machine[];
   done: { total: number; ok: number; bad: number; unknown: number; reasons: { note: string; count: number }[] };
-  configured: boolean;
   serverTime: number;
+  userId: string;
+  syncKey: string;
+  syncKeyCreatedAt: number | null;
 };
 
 type Table = { rows: ProxyRow[]; skipped: number; total: number; counts: Record<string, number> };
@@ -81,6 +83,7 @@ export function GeoSettingsPanel() {
   const [filter, setFilter] = useState("");
   const [status, setStatus] = useState<{ text: string; error?: boolean }>({ text: "" });
   const [busy, setBusy] = useState(false);
+  const [showKey, setShowKey] = useState(false);
   const dirty = useRef(false);
   const formRef = useRef<SettingsForm | null>(null);
   formRef.current = form;
@@ -175,6 +178,24 @@ export function GeoSettingsPanel() {
     }
   }
 
+  async function rotateKey() {
+    const has = Boolean(overview?.syncKey);
+    if (has && !window.confirm("Tạo khoá mới? Các máy đang dùng khoá cũ sẽ mất kết nối cho tới khi nhập khoá mới.")) return;
+    try {
+      const r = await api<Pick<Overview, "userId" | "syncKey" | "syncKeyCreatedAt">>({ action: "rotateKey" });
+      setOverview((o) => (o ? { ...o, ...r } : o));
+      setShowKey(true);
+      setStatus({ text: "Đã tạo khoá đồng bộ. Nhập ID user và khoá này vào app (Cài đặt → Host)." });
+    } catch (e) {
+      setStatus({ text: e instanceof Error ? e.message : String(e), error: true });
+    }
+  }
+
+  async function copyText(text: string, label: string) {
+    const ok = await copyToClipboard(text);
+    setStatus(ok ? { text: `Đã copy ${label}.` } : { text: "Không copy được.", error: true });
+  }
+
   async function releaseMachine(machine: string) {
     if (!window.confirm(`Trả mọi proxy máy ${machine} đang giữ? Chỉ nên làm khi máy đó đã tắt hẳn.`)) return;
     try {
@@ -215,11 +236,48 @@ export function GeoSettingsPanel() {
 
   return (
     <div className="space-y-6 pb-24">
-      {!overview.configured && (
-        <div className={ui.alertError}>
-          Chưa đặt <code>GEO_SYNC_KEY</code> trong <code>.env</code> của auto-post: app ở chế độ Host chưa kết nối được.
+      <section className={`${ui.card} ${ui.cardPad} space-y-3`}>
+        <h3 className="font-semibold text-gray-900">Kết nối app (chế độ Host)</h3>
+        <p className="text-sm text-gray-600">
+          Trong app: Cài đặt → Chế độ đọc dữ liệu → Host, nhập địa chỉ máy chủ, ID user và khoá đồng bộ bên dưới.
+          Dữ liệu ở đây chỉ thuộc tài khoản này; user khác có dữ liệu riêng.
+        </p>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div>
+            <div className="text-xs font-medium text-gray-600 mb-1">ID user</div>
+            <div className="flex gap-2">
+              <input readOnly className={`${ui.input} font-mono text-xs`} value={overview.userId} />
+              <button type="button" className={ui.btnSm} onClick={() => void copyText(overview.userId, "ID user")}>
+                Copy
+              </button>
+            </div>
+          </div>
+          <div>
+            <div className="text-xs font-medium text-gray-600 mb-1">Khoá đồng bộ</div>
+            {overview.syncKey ? (
+              <div className="flex gap-2">
+                <input
+                  readOnly
+                  type={showKey ? "text" : "password"}
+                  className={`${ui.input} font-mono text-xs`}
+                  value={overview.syncKey}
+                />
+                <button type="button" className={ui.btnSm} onClick={() => setShowKey((v) => !v)}>
+                  {showKey ? "Ẩn" : "Hiện"}
+                </button>
+                <button type="button" className={ui.btnSm} onClick={() => void copyText(overview.syncKey, "khoá đồng bộ")}>
+                  Copy
+                </button>
+              </div>
+            ) : (
+              <p className="text-sm text-gray-600">Chưa có khoá.</p>
+            )}
+          </div>
         </div>
-      )}
+        <button type="button" className={overview.syncKey ? ui.btnSm : ui.btnSmPrimary} onClick={() => void rotateKey()}>
+          {overview.syncKey ? "Tạo khoá mới" : "Tạo khoá đồng bộ"}
+        </button>
+      </section>
 
       <section className={`${ui.card} ${ui.cardPad} space-y-3`}>
         <h3 className="font-semibold text-gray-900">Máy đang chạy (chế độ Host)</h3>

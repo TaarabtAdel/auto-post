@@ -1,9 +1,11 @@
+import { createHash, randomBytes, timingSafeEqual } from "crypto";
 import { sqlite as getSqlite } from "@/lib/db";
+import { encrypt, decrypt } from "@/lib/crypto";
 
 /**
- * Kho dữ liệu dùng chung cho app Geo Proxy Rotator Browser chạy trên nhiều máy.
+ * Kho dữ liệu dùng chung cho app Geo Proxy Rotator Browser chạy trên nhiều máy, tách theo user auto-post.
  * Định dạng trả về giống geo-proxy-data.json (config / proxyHealth / proxyArticleDone).
- * Giữ chỗ proxy (lease) làm trong transaction SQLite nên hai máy không thể giữ cùng một proxy.
+ * Giữ chỗ proxy (lease) làm trong transaction SQLite nên hai máy của cùng user không giữ trùng một proxy.
  */
 
 export type HealthEntry = {
@@ -28,48 +30,75 @@ const TRACKING = ["fbclid", "gclid", "dclid", "msclkid", "twclid", "wbraid", "gb
 const CHANGE_KEEP = 200_000;
 const MIN_TTL = 30_000;
 const MAX_TTL = 600_000;
+const GEO_TABLES = ["geo_kv", "geo_proxy_health", "geo_article_done", "geo_lease", "geo_change"];
 
 let migrated = false;
 
+function hasColumn(table: string, column: string): boolean {
+  const cols = getSqlite().prepare(`PRAGMA table_info(${table})`).all() as { name: string }[];
+  return cols.some((c) => c.name === column);
+}
+
 export function migrateGeoSyncSchema() {
   if (migrated) return;
-  getSqlite().exec(`
+  const sqlite = getSqlite();
+  // Bản đầu chưa tách theo user: bỏ bảng cũ (chỉ là bản sao từ file geo-proxy-data.json, đẩy lại được).
+  const legacy = sqlite.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'geo_proxy_health'").get();
+  if (legacy && !hasColumn("geo_proxy_health", "user_id")) {
+    for (const t of GEO_TABLES) sqlite.exec(`DROP TABLE IF EXISTS ${t}`);
+  }
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS geo_user_key (
+      user_id TEXT PRIMARY KEY NOT NULL REFERENCES user(id) ON DELETE CASCADE,
+      token_hash TEXT NOT NULL,
+      token_enc TEXT NOT NULL,
+      created_at INTEGER NOT NULL
+    );
     CREATE TABLE IF NOT EXISTS geo_kv (
-      key TEXT PRIMARY KEY NOT NULL,
+      user_id TEXT NOT NULL,
+      key TEXT NOT NULL,
       value TEXT NOT NULL,
-      updated_at INTEGER NOT NULL
+      updated_at INTEGER NOT NULL,
+      PRIMARY KEY (user_id, key)
     );
     CREATE TABLE IF NOT EXISTS geo_proxy_health (
-      proxy_key TEXT PRIMARY KEY NOT NULL,
+      user_id TEXT NOT NULL,
+      proxy_key TEXT NOT NULL,
       status TEXT NOT NULL,
       ip TEXT NOT NULL DEFAULT '',
       note TEXT NOT NULL DEFAULT '',
       owner TEXT NOT NULL DEFAULT '',
-      updated_at INTEGER NOT NULL
+      updated_at INTEGER NOT NULL,
+      PRIMARY KEY (user_id, proxy_key)
     );
     CREATE TABLE IF NOT EXISTS geo_article_done (
+      user_id TEXT NOT NULL,
       proxy_key TEXT NOT NULL,
       url TEXT NOT NULL,
       ok INTEGER,
       note TEXT NOT NULL DEFAULT '',
       at INTEGER NOT NULL,
-      PRIMARY KEY (proxy_key, url)
+      PRIMARY KEY (user_id, proxy_key, url)
     );
     CREATE TABLE IF NOT EXISTS geo_lease (
-      lease_key TEXT PRIMARY KEY NOT NULL,
+      user_id TEXT NOT NULL,
+      lease_key TEXT NOT NULL,
       owner TEXT NOT NULL,
       machine TEXT NOT NULL,
       expires_at INTEGER NOT NULL,
-      claimed_at INTEGER NOT NULL
+      claimed_at INTEGER NOT NULL,
+      PRIMARY KEY (user_id, lease_key)
     );
-    CREATE INDEX IF NOT EXISTS geo_lease_machine_idx ON geo_lease (machine);
+    CREATE INDEX IF NOT EXISTS geo_lease_machine_idx ON geo_lease (user_id, machine);
     CREATE TABLE IF NOT EXISTS geo_change (
       seq INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id TEXT NOT NULL,
       kind TEXT NOT NULL,
       k1 TEXT NOT NULL DEFAULT '',
       k2 TEXT NOT NULL DEFAULT '',
       at INTEGER NOT NULL
     );
+    CREATE INDEX IF NOT EXISTS geo_change_user_idx ON geo_change (user_id, seq);
   `);
   migrated = true;
 }
@@ -77,6 +106,50 @@ export function migrateGeoSyncSchema() {
 function db() {
   migrateGeoSyncSchema();
   return getSqlite();
+}
+
+// ---- Khoá đồng bộ của từng user (app nhập ID user + khoá này) ----
+
+function hashToken(token: string): string {
+  return createHash("sha256").update(token).digest("hex");
+}
+
+/** Tạo khoá mới cho user (khoá cũ hết hiệu lực). Lưu băm để xác thực, bản mã hoá để hiện lại trên /geo. */
+export function rotateUserKey(userId: string): string {
+  const token = randomBytes(24).toString("hex");
+  db()
+    .prepare(
+      "INSERT INTO geo_user_key (user_id, token_hash, token_enc, created_at) VALUES (?, ?, ?, ?) " +
+        "ON CONFLICT(user_id) DO UPDATE SET token_hash = excluded.token_hash, token_enc = excluded.token_enc, " +
+        "created_at = excluded.created_at"
+    )
+    .run(userId, hashToken(token), encrypt(token), Date.now());
+  return token;
+}
+
+export function readUserKey(userId: string): { token: string; createdAt: number } | null {
+  const row = db().prepare("SELECT token_enc, created_at FROM geo_user_key WHERE user_id = ?").get(userId) as
+    | { token_enc: string; created_at: number }
+    | undefined;
+  if (!row) return null;
+  try {
+    return { token: decrypt(row.token_enc), createdAt: row.created_at };
+  } catch {
+    return null;
+  }
+}
+
+export function verifyUserKey(userIdRaw: unknown, tokenRaw: unknown): boolean {
+  const userId = String(userIdRaw ?? "").trim();
+  const token = String(tokenRaw ?? "").trim();
+  if (!userId || !token) return false;
+  const row = db().prepare("SELECT token_hash FROM geo_user_key WHERE user_id = ?").get(userId) as
+    | { token_hash: string }
+    | undefined;
+  if (!row) return false;
+  const a = Buffer.from(row.token_hash, "hex");
+  const b = Buffer.from(hashToken(token), "hex");
+  return a.length === b.length && timingSafeEqual(a, b);
 }
 
 // Giống articlePairKey của extension / app: bỏ fbclid, utm_*, hash để so cặp proxy–bài.
@@ -106,23 +179,26 @@ function clampTtl(ttl: unknown): number {
   return Math.min(MAX_TTL, Math.max(MIN_TTL, Math.round(n)));
 }
 
-function logChange(kind: string, k1 = "", k2 = "") {
-  db().prepare("INSERT INTO geo_change (kind, k1, k2, at) VALUES (?, ?, ?, ?)").run(kind, k1, k2, Date.now());
+function logChange(userId: string, kind: string, k1 = "", k2 = "") {
+  db().prepare("INSERT INTO geo_change (user_id, kind, k1, k2, at) VALUES (?, ?, ?, ?, ?)").run(userId, kind, k1, k2, Date.now());
 }
 
-function currentSeq(): number {
-  const row = db().prepare("SELECT MAX(seq) AS seq FROM geo_change").get() as { seq: number | null };
+function currentSeq(userId: string): number {
+  const row = db().prepare("SELECT MAX(seq) AS seq FROM geo_change WHERE user_id = ?").get(userId) as { seq: number | null };
   return row.seq ?? 0;
 }
 
 function pruneChanges() {
-  const seq = currentSeq();
+  const row = db().prepare("SELECT MAX(seq) AS seq FROM geo_change").get() as { seq: number | null };
+  const seq = row.seq ?? 0;
   if (seq % 1000 !== 0) return;
   db().prepare("DELETE FROM geo_change WHERE seq <= ?").run(seq - CHANGE_KEEP);
 }
 
-function readConfig(): Record<string, unknown> {
-  const row = db().prepare("SELECT value FROM geo_kv WHERE key = 'config'").get() as { value: string } | undefined;
+function readConfig(userId: string): Record<string, unknown> {
+  const row = db().prepare("SELECT value FROM geo_kv WHERE user_id = ? AND key = 'config'").get(userId) as
+    | { value: string }
+    | undefined;
   if (!row) return {};
   try {
     const value = JSON.parse(row.value);
@@ -132,13 +208,13 @@ function readConfig(): Record<string, unknown> {
   }
 }
 
-function writeConfig(config: Record<string, unknown>) {
+function writeConfig(userId: string, config: Record<string, unknown>) {
   db()
     .prepare(
-      "INSERT INTO geo_kv (key, value, updated_at) VALUES ('config', ?, ?) " +
-        "ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at"
+      "INSERT INTO geo_kv (user_id, key, value, updated_at) VALUES (?, 'config', ?, ?) " +
+        "ON CONFLICT(user_id, key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at"
     )
-    .run(JSON.stringify(config), Date.now());
+    .run(userId, JSON.stringify(config), Date.now());
 }
 
 type HealthRow = { proxy_key: string; status: string; ip: string; note: string; owner: string; updated_at: number };
@@ -155,23 +231,24 @@ function doneFromRow(r: DoneRow): DoneEntry {
   return entry;
 }
 
-export function healthMap(): Record<string, HealthEntry> {
+export function healthMap(userId: string): Record<string, HealthEntry> {
   const out: Record<string, HealthEntry> = {};
-  for (const r of db().prepare("SELECT * FROM geo_proxy_health").all() as HealthRow[]) {
+  for (const r of db().prepare("SELECT * FROM geo_proxy_health WHERE user_id = ?").all(userId) as HealthRow[]) {
     out[r.proxy_key] = healthFromRow(r);
   }
   return out;
 }
 
-export function configValue(): Record<string, unknown> {
-  return readConfig();
+export function configValue(userId: string): Record<string, unknown> {
+  return readConfig(userId);
 }
 
-export function activeLeases(): LeaseRow[] {
-  const now = Date.now();
+export function activeLeases(userId: string): LeaseRow[] {
   const rows = db()
-    .prepare("SELECT lease_key, owner, machine, expires_at, claimed_at FROM geo_lease WHERE expires_at > ?")
-    .all(now) as { lease_key: string; owner: string; machine: string; expires_at: number; claimed_at: number }[];
+    .prepare(
+      "SELECT lease_key, owner, machine, expires_at, claimed_at FROM geo_lease WHERE user_id = ? AND expires_at > ?"
+    )
+    .all(userId, Date.now()) as { lease_key: string; owner: string; machine: string; expires_at: number; claimed_at: number }[];
   return rows.map((r) => ({
     key: r.lease_key,
     owner: r.owner,
@@ -181,19 +258,19 @@ export function activeLeases(): LeaseRow[] {
   }));
 }
 
-export function snapshot() {
-  const proxyHealth = healthMap();
+export function snapshot(userId: string) {
   const proxyArticleDone: Record<string, DoneEntry[]> = {};
-  for (const r of db().prepare("SELECT * FROM geo_article_done ORDER BY proxy_key, at").all() as DoneRow[]) {
-    (proxyArticleDone[r.proxy_key] ||= []).push(doneFromRow(r));
-  }
+  const rows = db()
+    .prepare("SELECT * FROM geo_article_done WHERE user_id = ? ORDER BY proxy_key, at")
+    .all(userId) as DoneRow[];
+  for (const r of rows) (proxyArticleDone[r.proxy_key] ||= []).push(doneFromRow(r));
   return {
     full: true,
-    seq: currentSeq(),
-    config: readConfig(),
-    proxyHealth,
+    seq: currentSeq(userId),
+    config: readConfig(userId),
+    proxyHealth: healthMap(userId),
     proxyArticleDone,
-    leases: activeLeases(),
+    leases: activeLeases(userId),
     serverTime: Date.now(),
   };
 }
@@ -202,16 +279,16 @@ export function snapshot() {
  * Thay đổi kể từ seq (since = -1 để lấy toàn bộ). Trả snapshot đầy đủ khi client quá cũ,
  * máy chủ vừa đổi DB, hoặc dữ liệu vừa bị xoá / nhập hàng loạt.
  */
-export function changesSince(sinceRaw: unknown) {
+export function changesSince(userId: string, sinceRaw: unknown) {
   const since = Number(sinceRaw);
-  const seq = currentSeq();
-  if (!Number.isFinite(since) || since < 0 || since > seq) return snapshot();
-  const min = db().prepare("SELECT MIN(seq) AS seq FROM geo_change").get() as { seq: number | null };
-  if (min.seq !== null && since < min.seq - 1) return snapshot();
+  const seq = currentSeq(userId);
+  if (!Number.isFinite(since) || since < 0 || since > seq) return snapshot(userId);
+  const min = db().prepare("SELECT MIN(seq) AS seq FROM geo_change WHERE user_id = ?").get(userId) as { seq: number | null };
+  if (min.seq !== null && since < min.seq - 1) return snapshot(userId);
   const rows = db()
-    .prepare("SELECT kind, k1, k2 FROM geo_change WHERE seq > ? ORDER BY seq")
-    .all(since) as { kind: string; k1: string; k2: string }[];
-  if (rows.some((r) => r.kind === "reset")) return snapshot();
+    .prepare("SELECT kind, k1, k2 FROM geo_change WHERE user_id = ? AND seq > ? ORDER BY seq")
+    .all(userId, since) as { kind: string; k1: string; k2: string }[];
+  if (rows.some((r) => r.kind === "reset")) return snapshot(userId);
 
   const healthKeys = new Set<string>();
   const donePairs = new Map<string, [string, string]>();
@@ -222,102 +299,107 @@ export function changesSince(sinceRaw: unknown) {
     else if (r.kind === "config") configChanged = true;
   }
   const health: Record<string, HealthEntry | null> = {};
-  const getHealth = db().prepare("SELECT * FROM geo_proxy_health WHERE proxy_key = ?");
+  const getHealth = db().prepare("SELECT * FROM geo_proxy_health WHERE user_id = ? AND proxy_key = ?");
   for (const key of healthKeys) {
-    const row = getHealth.get(key) as HealthRow | undefined;
+    const row = getHealth.get(userId, key) as HealthRow | undefined;
     health[key] = row ? healthFromRow(row) : null;
   }
   const done: { proxyKey: string; entry: DoneEntry }[] = [];
-  const getDone = db().prepare("SELECT * FROM geo_article_done WHERE proxy_key = ? AND url = ?");
+  const getDone = db().prepare("SELECT * FROM geo_article_done WHERE user_id = ? AND proxy_key = ? AND url = ?");
   for (const [proxyKey, url] of donePairs.values()) {
-    const row = getDone.get(proxyKey, url) as DoneRow | undefined;
+    const row = getDone.get(userId, proxyKey, url) as DoneRow | undefined;
     if (row) done.push({ proxyKey, entry: doneFromRow(row) });
   }
   return {
     full: false,
     seq,
-    config: configChanged ? readConfig() : undefined,
+    config: configChanged ? readConfig(userId) : undefined,
     health,
     done,
-    leases: activeLeases(),
+    leases: activeLeases(userId),
     serverTime: Date.now(),
   };
 }
 
-export function setHealth(proxyKeyRaw: unknown, entry: Partial<HealthEntry>) {
+export function setHealth(userId: string, proxyKeyRaw: unknown, entry: Partial<HealthEntry>) {
   const proxyKey = clip(proxyKeyRaw, 300);
   if (!proxyKey) throw Error("Thiếu proxyKey.");
   const status = clip(entry.status, 20) || "unknown";
   const tx = db().transaction(() => {
     db()
       .prepare(
-        "INSERT INTO geo_proxy_health (proxy_key, status, ip, note, owner, updated_at) VALUES (?, ?, ?, ?, ?, ?) " +
-          "ON CONFLICT(proxy_key) DO UPDATE SET status = excluded.status, " +
+        "INSERT INTO geo_proxy_health (user_id, proxy_key, status, ip, note, owner, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?) " +
+          "ON CONFLICT(user_id, proxy_key) DO UPDATE SET status = excluded.status, " +
           "ip = CASE WHEN excluded.ip <> '' THEN excluded.ip ELSE geo_proxy_health.ip END, " +
           "note = excluded.note, owner = excluded.owner, updated_at = excluded.updated_at"
       )
-      .run(proxyKey, status, clip(entry.ip, 64), clip(entry.note), clip(entry.owner, 80), Date.now());
-    logChange("health", proxyKey);
+      .run(userId, proxyKey, status, clip(entry.ip, 64), clip(entry.note), clip(entry.owner, 80), Date.now());
+    logChange(userId, "health", proxyKey);
   });
   tx();
   pruneChanges();
 }
 
 // Thành công giữ lại. Lỗi chỉ ghi khi chưa từng chạy được. Không có ok là cặp chưa rõ kết quả.
-export function remember(proxyKeyRaw: unknown, urlRaw: unknown, outcome: { ok?: unknown; note?: unknown } | null) {
+export function remember(
+  userId: string,
+  proxyKeyRaw: unknown,
+  urlRaw: unknown,
+  outcome: { ok?: unknown; note?: unknown } | null
+) {
   const proxyKey = clip(proxyKeyRaw, 300);
   const url = articlePairKey(urlRaw);
   if (!proxyKey || !url) throw Error("Thiếu proxyKey hoặc url.");
   const nextOk = typeof outcome?.ok === "boolean" ? outcome.ok : null;
   const tx = db().transaction(() => {
     const prev = db()
-      .prepare("SELECT ok FROM geo_article_done WHERE proxy_key = ? AND url = ?")
-      .get(proxyKey, url) as { ok: number | null } | undefined;
+      .prepare("SELECT ok FROM geo_article_done WHERE user_id = ? AND proxy_key = ? AND url = ?")
+      .get(userId, proxyKey, url) as { ok: number | null } | undefined;
     const prevOk = prev ? (prev.ok === null ? null : prev.ok === 1) : null;
     if (prevOk === true) return;
     let ok: number | null = null;
     let note = "";
     if (nextOk === true) ok = 1;
     else if (nextOk === false) { ok = 0; note = clip(outcome?.note); }
-    else if (prevOk === false) return;
     else if (prev) return;
     db()
       .prepare(
-        "INSERT INTO geo_article_done (proxy_key, url, ok, note, at) VALUES (?, ?, ?, ?, ?) " +
-          "ON CONFLICT(proxy_key, url) DO UPDATE SET ok = excluded.ok, note = excluded.note, at = excluded.at"
+        "INSERT INTO geo_article_done (user_id, proxy_key, url, ok, note, at) VALUES (?, ?, ?, ?, ?, ?) " +
+          "ON CONFLICT(user_id, proxy_key, url) DO UPDATE SET ok = excluded.ok, note = excluded.note, at = excluded.at"
       )
-      .run(proxyKey, url, ok, note, Date.now());
-    logChange("done", proxyKey, url);
+      .run(userId, proxyKey, url, ok, note, Date.now());
+    logChange(userId, "done", proxyKey, url);
   });
   tx();
   pruneChanges();
 }
 
-export function updateConfig(patch: unknown) {
+export function updateConfig(userId: string, patch: unknown) {
   if (!patch || typeof patch !== "object" || Array.isArray(patch)) throw Error("config không hợp lệ.");
   const tx = db().transaction(() => {
-    writeConfig({ ...readConfig(), ...(patch as Record<string, unknown>) });
-    logChange("config");
+    writeConfig(userId, { ...readConfig(userId), ...(patch as Record<string, unknown>) });
+    logChange(userId, "config");
   });
   tx();
-  return readConfig();
+  return readConfig(userId);
 }
 
-export function clear(what: unknown) {
+export function clear(userId: string, what: unknown) {
   const tx = db().transaction(() => {
-    if (what === "health") db().exec("DELETE FROM geo_proxy_health");
-    else if (what === "done") db().exec("DELETE FROM geo_article_done");
+    if (what === "health") db().prepare("DELETE FROM geo_proxy_health WHERE user_id = ?").run(userId);
+    else if (what === "done") db().prepare("DELETE FROM geo_article_done WHERE user_id = ?").run(userId);
     else if (what === "proxies") {
-      writeConfig({ ...readConfig(), proxyText: "", proxies: [] });
-      db().exec("DELETE FROM geo_proxy_health; DELETE FROM geo_lease;");
+      writeConfig(userId, { ...readConfig(userId), proxyText: "", proxies: [] });
+      db().prepare("DELETE FROM geo_proxy_health WHERE user_id = ?").run(userId);
+      db().prepare("DELETE FROM geo_lease WHERE user_id = ?").run(userId);
     } else throw Error("Không rõ mục cần xoá.");
-    logChange("reset");
+    logChange(userId, "reset");
   });
   tx();
 }
 
 /** Giữ chỗ nguyên tử: chỉ được nếu chưa ai giữ, đã hết hạn, hoặc chính owner này đang giữ. */
-export function claim(input: { key?: unknown; owner?: unknown; machine?: unknown; ttlMs?: unknown }) {
+export function claim(userId: string, input: { key?: unknown; owner?: unknown; machine?: unknown; ttlMs?: unknown }) {
   const key = clip(input.key, 300);
   const owner = clip(input.owner, 120);
   const machine = clip(input.machine, 80);
@@ -325,41 +407,44 @@ export function claim(input: { key?: unknown; owner?: unknown; machine?: unknown
   const ttl = clampTtl(input.ttlMs);
   const tx = db().transaction(() => {
     const now = Date.now();
-    db().prepare("DELETE FROM geo_lease WHERE expires_at <= ?").run(now);
-    const row = db().prepare("SELECT owner FROM geo_lease WHERE lease_key = ?").get(key) as { owner: string } | undefined;
+    db().prepare("DELETE FROM geo_lease WHERE user_id = ? AND expires_at <= ?").run(userId, now);
+    const row = db().prepare("SELECT owner FROM geo_lease WHERE user_id = ? AND lease_key = ?").get(userId, key) as
+      | { owner: string }
+      | undefined;
     if (row && row.owner !== owner) return { ok: false as const, owner: row.owner };
     db()
       .prepare(
-        "INSERT INTO geo_lease (lease_key, owner, machine, expires_at, claimed_at) VALUES (?, ?, ?, ?, ?) " +
-          "ON CONFLICT(lease_key) DO UPDATE SET expires_at = excluded.expires_at"
+        "INSERT INTO geo_lease (user_id, lease_key, owner, machine, expires_at, claimed_at) VALUES (?, ?, ?, ?, ?, ?) " +
+          "ON CONFLICT(user_id, lease_key) DO UPDATE SET expires_at = excluded.expires_at"
       )
-      .run(key, owner, machine, now + ttl, now);
+      .run(userId, key, owner, machine, now + ttl, now);
     return { ok: true as const };
   });
   return tx();
 }
 
-export function renew(input: { machine?: unknown; ttlMs?: unknown }) {
+export function renew(userId: string, input: { machine?: unknown; ttlMs?: unknown }) {
   const machine = clip(input.machine, 80);
   if (!machine) throw Error("Thiếu machine.");
+  const now = Date.now();
   const r = db()
-    .prepare("UPDATE geo_lease SET expires_at = ? WHERE machine = ? AND expires_at > ?")
-    .run(Date.now() + clampTtl(input.ttlMs), machine, Date.now());
+    .prepare("UPDATE geo_lease SET expires_at = ? WHERE user_id = ? AND machine = ? AND expires_at > ?")
+    .run(now + clampTtl(input.ttlMs), userId, machine, now);
   return { renewed: r.changes };
 }
 
-export function release(input: { owner?: unknown; machine?: unknown; keys?: unknown }) {
+export function release(userId: string, input: { owner?: unknown; machine?: unknown; keys?: unknown }) {
   const keys = Array.isArray(input.keys) ? input.keys.map((k) => clip(k, 300)).filter(Boolean) : [];
   const tx = db().transaction(() => {
     if (input.machine && !input.owner) {
-      return db().prepare("DELETE FROM geo_lease WHERE machine = ?").run(clip(input.machine, 80)).changes;
+      return db().prepare("DELETE FROM geo_lease WHERE user_id = ? AND machine = ?").run(userId, clip(input.machine, 80)).changes;
     }
     const owner = clip(input.owner, 120);
     if (!owner) throw Error("Thiếu owner.");
-    if (!keys.length) return db().prepare("DELETE FROM geo_lease WHERE owner = ?").run(owner).changes;
-    const del = db().prepare("DELETE FROM geo_lease WHERE owner = ? AND lease_key = ?");
+    if (!keys.length) return db().prepare("DELETE FROM geo_lease WHERE user_id = ? AND owner = ?").run(userId, owner).changes;
+    const del = db().prepare("DELETE FROM geo_lease WHERE user_id = ? AND owner = ? AND lease_key = ?");
     let n = 0;
-    for (const key of keys) n += del.run(owner, key).changes;
+    for (const key of keys) n += del.run(userId, owner, key).changes;
     return n;
   });
   return { released: tx() };
@@ -372,33 +457,36 @@ type ImportData = {
 };
 
 /** Gộp geo-proxy-data.json của một máy lên máy chủ (trạng thái mới hơn thắng, cặp thành công giữ lại). */
-export function importData(data: ImportData, overwriteConfig: boolean) {
+export function importData(userId: string, data: ImportData, overwriteConfig: boolean) {
   let health = 0;
   let done = 0;
   let configTaken = false;
   const tx = db().transaction(() => {
-    const getHealth = db().prepare("SELECT updated_at FROM geo_proxy_health WHERE proxy_key = ?");
+    const getHealth = db().prepare("SELECT updated_at FROM geo_proxy_health WHERE user_id = ? AND proxy_key = ?");
     const putHealth = db().prepare(
-      "INSERT INTO geo_proxy_health (proxy_key, status, ip, note, owner, updated_at) VALUES (?, ?, ?, ?, ?, ?) " +
-        "ON CONFLICT(proxy_key) DO UPDATE SET status = excluded.status, ip = excluded.ip, note = excluded.note, " +
+      "INSERT INTO geo_proxy_health (user_id, proxy_key, status, ip, note, owner, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?) " +
+        "ON CONFLICT(user_id, proxy_key) DO UPDATE SET status = excluded.status, ip = excluded.ip, note = excluded.note, " +
         "owner = excluded.owner, updated_at = excluded.updated_at"
     );
-    const healthMap = data.proxyHealth && typeof data.proxyHealth === "object" ? (data.proxyHealth as Record<string, Partial<HealthEntry>>) : {};
-    for (const [key, h] of Object.entries(healthMap)) {
+    const healthMapIn =
+      data.proxyHealth && typeof data.proxyHealth === "object" ? (data.proxyHealth as Record<string, Partial<HealthEntry>>) : {};
+    for (const [keyRaw, h] of Object.entries(healthMapIn)) {
       if (!h || typeof h !== "object" || !h.status) continue;
+      const key = clip(keyRaw, 300);
       const at = Number(h.updatedAt) || 0;
-      const prev = getHealth.get(clip(key, 300)) as { updated_at: number } | undefined;
+      const prev = getHealth.get(userId, key) as { updated_at: number } | undefined;
       if (prev && prev.updated_at >= at) continue;
-      putHealth.run(clip(key, 300), clip(h.status, 20), clip(h.ip, 64), clip(h.note), clip(h.owner, 80), at || Date.now());
+      putHealth.run(userId, key, clip(h.status, 20), clip(h.ip, 64), clip(h.note), clip(h.owner, 80), at || Date.now());
       health += 1;
     }
 
-    const getDone = db().prepare("SELECT ok FROM geo_article_done WHERE proxy_key = ? AND url = ?");
+    const getDone = db().prepare("SELECT ok FROM geo_article_done WHERE user_id = ? AND proxy_key = ? AND url = ?");
     const putDone = db().prepare(
-      "INSERT INTO geo_article_done (proxy_key, url, ok, note, at) VALUES (?, ?, ?, ?, ?) " +
-        "ON CONFLICT(proxy_key, url) DO UPDATE SET ok = excluded.ok, note = excluded.note, at = excluded.at"
+      "INSERT INTO geo_article_done (user_id, proxy_key, url, ok, note, at) VALUES (?, ?, ?, ?, ?, ?) " +
+        "ON CONFLICT(user_id, proxy_key, url) DO UPDATE SET ok = excluded.ok, note = excluded.note, at = excluded.at"
     );
-    const doneMap = data.proxyArticleDone && typeof data.proxyArticleDone === "object" ? (data.proxyArticleDone as Record<string, unknown>) : {};
+    const doneMap =
+      data.proxyArticleDone && typeof data.proxyArticleDone === "object" ? (data.proxyArticleDone as Record<string, unknown>) : {};
     for (const [proxyKeyRaw, list] of Object.entries(doneMap)) {
       if (!Array.isArray(list)) continue;
       const proxyKey = clip(proxyKeyRaw, 300);
@@ -408,35 +496,35 @@ export function importData(data: ImportData, overwriteConfig: boolean) {
         if (!url) continue;
         const okRaw = isObj ? (item as { ok?: unknown }).ok : undefined;
         const ok = okRaw === true ? 1 : okRaw === false ? 0 : null;
-        const prev = getDone.get(proxyKey, url) as { ok: number | null } | undefined;
+        const prev = getDone.get(userId, proxyKey, url) as { ok: number | null } | undefined;
         if (prev && (prev.ok === 1 || ok === null || (prev.ok === 0 && ok === 0))) continue;
         const at = isObj ? Number((item as { at?: unknown }).at) || Date.now() : Date.now();
         const note = ok === 0 && isObj ? clip((item as { note?: unknown }).note) : "";
-        putDone.run(proxyKey, url, ok, note, at);
+        putDone.run(userId, proxyKey, url, ok, note, at);
         done += 1;
       }
     }
 
-    const current = readConfig();
+    const current = readConfig(userId);
     if (data.config && typeof data.config === "object" && (overwriteConfig || !Object.keys(current).length)) {
-      writeConfig({ ...current, ...(data.config as Record<string, unknown>) });
+      writeConfig(userId, { ...current, ...(data.config as Record<string, unknown>) });
       configTaken = true;
     }
-    logChange("reset");
+    logChange(userId, "reset");
   });
   tx();
   return { health, done, configTaken };
 }
 
-export function stats() {
-  const one = (sql: string) => (db().prepare(sql).get() as { n: number }).n;
+export function stats(userId: string) {
+  const one = (sql: string) => (db().prepare(sql).get(userId) as { n: number }).n;
   return {
-    seq: currentSeq(),
-    health: one("SELECT COUNT(*) AS n FROM geo_proxy_health"),
-    dead: one("SELECT COUNT(*) AS n FROM geo_proxy_health WHERE status = 'dead'"),
-    done: one("SELECT COUNT(*) AS n FROM geo_article_done"),
-    leases: activeLeases().length,
-    hasConfig: Object.keys(readConfig()).length > 0,
+    seq: currentSeq(userId),
+    health: one("SELECT COUNT(*) AS n FROM geo_proxy_health WHERE user_id = ?"),
+    dead: one("SELECT COUNT(*) AS n FROM geo_proxy_health WHERE user_id = ? AND status = 'dead'"),
+    done: one("SELECT COUNT(*) AS n FROM geo_article_done WHERE user_id = ?"),
+    leases: activeLeases(userId).length,
+    hasConfig: Object.keys(readConfig(userId)).length > 0,
     serverTime: Date.now(),
   };
 }
