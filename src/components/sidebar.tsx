@@ -4,9 +4,11 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
 import { SignOutButton } from "@/components/sign-out-button";
+import { copyToClipboard } from "@/lib/copy-to-clipboard";
 
 interface SidebarProps {
   userName: string;
+  userId: string;
 }
 
 const navItems = [
@@ -49,9 +51,16 @@ function isNavActive(pathname: string, href: string): boolean {
   return href !== "/dashboard" && pathname.startsWith(`${href}/`);
 }
 
-export function Sidebar({ userName }: SidebarProps) {
+export function Sidebar({ userName, userId }: SidebarProps) {
   const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  async function copyUserId() {
+    if (!(await copyToClipboard(userId))) return;
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  }
 
   return (
     <>
@@ -118,6 +127,21 @@ export function Sidebar({ userName }: SidebarProps) {
             </div>
             <div className="flex-1 min-w-0">
               <p className="text-sm font-medium truncate">{userName}</p>
+            </div>
+          </div>
+          <div className="mb-3">
+            <p className="text-[11px] text-gray-400 mb-1">ID user (nhập vào app Geo Proxy Rotator)</p>
+            <div className="flex items-center gap-2">
+              <code className="flex-1 min-w-0 truncate text-xs text-gray-200 bg-gray-800 rounded px-2 py-1" title={userId}>
+                {userId}
+              </code>
+              <button
+                type="button"
+                onClick={() => void copyUserId()}
+                className="text-xs px-2 py-1 rounded bg-gray-700 hover:bg-gray-600 text-white shrink-0"
+              >
+                {copied ? "Đã copy" : "Copy"}
+              </button>
             </div>
           </div>
           <SignOutButton />

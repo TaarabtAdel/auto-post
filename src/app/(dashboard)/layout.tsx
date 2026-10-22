@@ -14,7 +14,7 @@ export default async function DashboardLayout({
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <Sidebar userName={session.user.name || session.user.email} />
+      <Sidebar userName={session.user.name || session.user.email} userId={session.user.id} />
 
       {/* Main content — offset by sidebar width on desktop */}
       <main className="lg:ml-64 pt-14 lg:pt-0">
