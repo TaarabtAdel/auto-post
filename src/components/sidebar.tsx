@@ -20,6 +20,7 @@ const navItems = [
   { href: "/logs", label: "Log hệ thống", icon: "📋" },
   { href: "/youtube", label: "Tìm video YouTube", icon: "▶️" },
   { href: "/reels", label: "Tạo Reel", icon: "🎬" },
+  { href: "/geo", label: "Geo Proxy Rotator", icon: "🌎" },
   { href: "/posts", label: "Bài viết", icon: "📝" },
   { href: "/posts/new", label: "Tạo bài mới", icon: "✨" },
 ];
@@ -37,7 +38,8 @@ function isNavActive(pathname: string, href: string): boolean {
     href === "/youtube" ||
     href === "/backgrounds" ||
     href === "/uploads/cleanup" ||
-    href === "/logs"
+    href === "/logs" ||
+    href === "/geo"
   ) {
     return pathname === href;
   }

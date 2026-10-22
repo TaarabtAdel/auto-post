@@ -34,6 +34,9 @@ export async function register() {
     const { migrateYoutubeListSchema } = await import("@/lib/youtube-list-schema");
     migrateYoutubeListSchema();
 
+    const { migrateGeoSyncSchema } = await import("@/lib/geo-sync/store");
+    migrateGeoSyncSchema();
+
     const { ensureUploadBucketRoots } = await import("@/lib/upload-storage");
     await ensureUploadBucketRoots();
 

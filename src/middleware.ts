@@ -37,6 +37,12 @@ export function middleware(request: NextRequest) {
 
   const { pathname } = request.nextUrl;
 
+  // App Geo Proxy Rotator Browser tự xác thực bằng x-geo-sync-key trong route.
+  // /api/geo-sync/admin (màn /geo) vẫn cần đăng nhập như các API khác.
+  if (pathname === "/api/geo-sync") {
+    return NextResponse.next();
+  }
+
   if (isPublicPath(pathname) || isN8nApiRoute(pathname, request)) {
     return NextResponse.next();
   }
