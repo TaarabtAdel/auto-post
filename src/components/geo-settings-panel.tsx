@@ -176,7 +176,7 @@ export function GeoSettingsPanel() {
   }
 
   async function releaseMachine(machine: string) {
-    if (!window.confirm(`Trả mọi proxy máy "${machine}" đang giữ? Chỉ nên làm khi máy đó đã tắt hẳn.`)) return;
+    if (!window.confirm(`Trả mọi proxy máy ${machine} đang giữ? Chỉ nên làm khi máy đó đã tắt hẳn.`)) return;
     try {
       await api({ action: "releaseMachine", machine });
       await refresh();
@@ -230,7 +230,7 @@ export function GeoSettingsPanel() {
             <table className="w-full">
               <thead className={ui.tableHead}>
                 <tr>
-                  <th className={ui.th}>Máy</th>
+                  <th className={ui.th}>Máy (IP lúc mở app)</th>
                   <th className={ui.th}>Tab đang giữ</th>
                   <th className={ui.th}>Proxy đang giữ</th>
                   <th className={ui.th}>Gia hạn gần nhất</th>
