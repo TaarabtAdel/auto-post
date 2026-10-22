@@ -28,8 +28,18 @@ export async function POST(request: NextRequest) {
     switch (body.action) {
       case "ping":
         return NextResponse.json({ ok: true, userId, ...store.stats(userId) });
-      case "pull":
-        return NextResponse.json({ ok: true, ...store.changesSince(userId, body.since) });
+      case "pull": {
+        // Mỗi lần kéo dữ liệu, máy báo đang online (để /geo thấy cả máy đang chờ việc) và nhận lệnh chờ.
+        let commands: ReturnType<typeof store.takeCommands> = [];
+        if (body.machine) {
+          store.touchMachine(userId, body.machine, body.presence);
+          commands = store.takeCommands(userId, body.machine);
+        }
+        return NextResponse.json({ ok: true, ...store.changesSince(userId, body.since), commands });
+      }
+      case "ackCommand":
+        store.ackCommand(userId, body.id, body.status, body.note);
+        return NextResponse.json({ ok: true });
       case "setHealth":
         store.setHealth(userId, body.proxyKey, (body.entry ?? {}) as Partial<store.HealthEntry>);
         return NextResponse.json({ ok: true });

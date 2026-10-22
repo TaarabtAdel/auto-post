@@ -29,7 +29,34 @@ type ProxyRow = {
   title: string;
 };
 
-type Machine = { machine: string; proxies: number; ips: number; tabs: number; expiresAt: number };
+type Machine = {
+  machine: string;
+  ip: string;
+  online: boolean;
+  lastSeen: number;
+  tabs: number;
+  running: number;
+  allowShutdown: boolean;
+  proxies: number;
+  command: { kind: string; status: string; note: string; createdAt: number; updatedAt: number } | null;
+};
+
+const COMMAND_LABEL: Record<string, string> = {
+  pending: "Đã gửi lệnh tắt, chờ máy nhận",
+  delivered: "Máy đã nhận, đang đếm 60 giây",
+  done: "Máy đã tắt",
+  canceled: "Người dùng trên máy đã huỷ",
+  rejected: "Máy từ chối (chưa cho phép tắt từ xa)",
+  failed: "Tắt máy lỗi",
+  expired: "Lệnh hết hạn (máy không nhận trong 10 phút)",
+};
+
+function ago(ms: number) {
+  const s = Math.max(0, Math.round(ms / 1000));
+  if (s < 60) return `${s} giây trước`;
+  if (s < 3600) return `${Math.round(s / 60)} phút trước`;
+  return `${Math.round(s / 3600)} giờ trước`;
+}
 
 type Overview = {
   form: SettingsForm;
@@ -196,6 +223,17 @@ export function GeoSettingsPanel() {
     setStatus(ok ? { text: `Đã copy ${label}.` } : { text: "Không copy được.", error: true });
   }
 
+  async function shutdownMachine(machine: string) {
+    if (!window.confirm(`Tắt máy ${machine}?\n\nMáy sẽ hiện thông báo đếm 60 giây (có nút Huỷ), dừng các tab, trả proxy rồi tắt máy.`)) return;
+    try {
+      const r = await api<Overview>({ action: "shutdown", machine });
+      setOverview(r);
+      setStatus({ text: `Đã gửi lệnh tắt máy ${machine}. Máy nhận trong khoảng 5 giây.` });
+    } catch (e) {
+      setStatus({ text: e instanceof Error ? e.message : String(e), error: true });
+    }
+  }
+
   async function releaseMachine(machine: string) {
     if (!window.confirm(`Trả mọi proxy máy ${machine} đang giữ? Chỉ nên làm khi máy đó đã tắt hẳn.`)) return;
     try {
@@ -280,18 +318,19 @@ export function GeoSettingsPanel() {
       </section>
 
       <section className={`${ui.card} ${ui.cardPad} space-y-3`}>
-        <h3 className="font-semibold text-gray-900">Máy đang chạy (chế độ Host)</h3>
+        <h3 className="font-semibold text-gray-900">Máy chạy app (chế độ Host)</h3>
         {overview.machines.length === 0 ? (
-          <p className="text-sm text-gray-600">Chưa có máy nào đang giữ proxy.</p>
+          <p className="text-sm text-gray-600">Chưa có máy nào kết nối trong 24 giờ qua.</p>
         ) : (
-          <div className={ui.tableShell}>
+          <div className={`${ui.tableShell} overflow-x-auto`}>
             <table className="w-full">
               <thead className={ui.tableHead}>
                 <tr>
                   <th className={ui.th}>Máy (IP lúc mở app)</th>
-                  <th className={ui.th}>Tab đang giữ</th>
+                  <th className={ui.th}>Trạng thái</th>
+                  <th className={ui.th}>Tab chạy</th>
                   <th className={ui.th}>Proxy đang giữ</th>
-                  <th className={ui.th}>Gia hạn gần nhất</th>
+                  <th className={ui.th}>Lệnh tắt máy</th>
                   <th className={ui.th}></th>
                 </tr>
               </thead>
@@ -299,13 +338,45 @@ export function GeoSettingsPanel() {
                 {overview.machines.map((m) => (
                   <tr key={m.machine} className="border-t border-gray-100">
                     <td className={`${ui.td} font-medium`}>{m.machine}</td>
-                    <td className={ui.td}>{m.tabs}</td>
+                    <td className={ui.td}>
+                      <span className={m.online ? "text-green-700" : "text-gray-500"}>
+                        {m.online ? "Online" : "Offline"}
+                      </span>
+                      {m.lastSeen ? <span className="text-xs text-gray-500"> · {ago(now - m.lastSeen)}</span> : null}
+                    </td>
+                    <td className={ui.td}>{m.running}/{m.tabs}</td>
                     <td className={ui.td}>{m.proxies}</td>
-                    <td className={ui.td}>hết hạn sau {Math.max(0, Math.round((m.expiresAt - now) / 1000))} giây</td>
-                    <td className={`${ui.td} text-right`}>
-                      <button type="button" className={ui.btnSm} onClick={() => void releaseMachine(m.machine)}>
-                        Trả proxy
+                    <td className={`${ui.td} text-xs`}>
+                      {m.command && m.command.status !== "replaced" ? (
+                        <span title={m.command.note}>
+                          {COMMAND_LABEL[m.command.status] || m.command.status}
+                          {m.command.note ? `: ${m.command.note}` : ""}
+                        </span>
+                      ) : (
+                        <span className="text-gray-400">—</span>
+                      )}
+                    </td>
+                    <td className={`${ui.td} text-right whitespace-nowrap space-x-2`}>
+                      <button
+                        type="button"
+                        className={ui.btnSm}
+                        disabled={!m.online || !m.allowShutdown}
+                        title={
+                          !m.allowShutdown
+                            ? "Máy chưa bật “Cho phép tắt máy này từ /geo” trong Cài đặt app"
+                            : !m.online
+                              ? "Máy đang offline"
+                              : "Tắt máy (máy đếm 60 giây, có nút Huỷ)"
+                        }
+                        onClick={() => void shutdownMachine(m.machine)}
+                      >
+                        Tắt máy
                       </button>
+                      {m.proxies > 0 && (
+                        <button type="button" className={ui.btnSm} onClick={() => void releaseMachine(m.machine)}>
+                          Trả proxy
+                        </button>
+                      )}
                     </td>
                   </tr>
                 ))}
@@ -314,7 +385,8 @@ export function GeoSettingsPanel() {
           </div>
         )}
         <p className="text-xs text-gray-500">
-          Mỗi máy tự gia hạn chỗ giữ mỗi phút. Máy tắt đột ngột thì proxy tự được trả sau 3 phút.
+          Máy báo online mỗi lần đồng bộ (khoảng 5 giây). Nút Tắt máy chỉ bấm được khi máy đó đã bật “Cho phép tắt máy này từ
+          /geo” trong Cài đặt app. Lệnh tắt chỉ có hiệu lực 10 phút. Máy tắt đột ngột thì proxy tự được trả sau 3 phút.
         </p>
       </section>
 

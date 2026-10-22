@@ -378,18 +378,57 @@ export function inspectProxies(userId: string, text: unknown) {
   return { rows, skipped, total: rows.length, counts };
 }
 
-/** Các máy đang chạy (theo chỗ giữ còn hạn) và tổng hợp lịch sử. */
+export type MachineView = {
+  machine: string;
+  ip: string;
+  online: boolean;
+  lastSeen: number;
+  tabs: number;
+  running: number;
+  allowShutdown: boolean;
+  proxies: number;
+  command: { kind: string; status: string; note: string; createdAt: number; updatedAt: number } | null;
+};
+
+/** Các máy: máy báo online gần đây (kể cả đang chờ việc) cộng máy đang giữ proxy, kèm lệnh gần nhất. */
+function machineViews(userId: string, leases: store.LeaseRow[], now: number): MachineView[] {
+  const byName = new Map<string, MachineView>();
+  const get = (machine: string): MachineView => {
+    let m = byName.get(machine);
+    if (!m) {
+      m = { machine, ip: "", online: false, lastSeen: 0, tabs: 0, running: 0, allowShutdown: false, proxies: 0, command: null };
+      byName.set(machine, m);
+    }
+    return m;
+  };
+  for (const r of store.listMachines(userId)) {
+    const m = get(r.machine);
+    m.ip = r.info.ip || "";
+    m.lastSeen = r.lastSeen;
+    m.online = now - r.lastSeen < store.MACHINE_ONLINE_MS;
+    m.tabs = r.info.tabs || 0;
+    m.running = r.info.running || 0;
+    m.allowShutdown = r.info.allowShutdown === true;
+  }
+  for (const l of leases) {
+    const m = get(l.machine);
+    if (l.key.startsWith("proxy:")) m.proxies += 1;
+    m.online = true;
+  }
+  const commands = store.latestCommands(userId);
+  for (const m of byName.values()) {
+    const c = commands[m.machine];
+    if (!c) continue;
+    const expired = c.status === "pending" && now - c.createdAt > store.COMMAND_TTL_MS;
+    m.command = { kind: c.kind, status: expired ? "expired" : c.status, note: c.note, createdAt: c.createdAt, updatedAt: c.updatedAt };
+  }
+  // Máy offline quá 1 ngày thì listMachines đã bỏ; máy offline không giữ proxy xếp sau.
+  return [...byName.values()].sort((a, b) => Number(b.online) - Number(a.online) || a.machine.localeCompare(b.machine));
+}
+
+/** Các máy và tổng hợp lịch sử. */
 export function overview(userId: string) {
   const snap = store.snapshot(userId);
-  const machines = new Map<string, { machine: string; proxies: number; ips: number; tabs: Set<string>; expiresAt: number }>();
-  for (const l of snap.leases) {
-    const m = machines.get(l.machine) || { machine: l.machine, proxies: 0, ips: 0, tabs: new Set<string>(), expiresAt: 0 };
-    if (l.key.startsWith("proxy:")) m.proxies += 1;
-    if (l.key.startsWith("ip:")) m.ips += 1;
-    m.tabs.add(l.owner);
-    m.expiresAt = Math.max(m.expiresAt, l.expiresAt);
-    machines.set(l.machine, m);
-  }
   const done = { total: 0, ok: 0, bad: 0, unknown: 0 };
   const notes: Record<string, number> = {};
   for (const list of Object.values(snap.proxyArticleDone)) {
@@ -409,9 +448,7 @@ export function overview(userId: string) {
     .slice(0, 3);
   return {
     form: settingsForm(snap.config),
-    machines: [...machines.values()]
-      .map((m) => ({ machine: m.machine, proxies: m.proxies, ips: m.ips, tabs: m.tabs.size, expiresAt: m.expiresAt }))
-      .sort((a, b) => a.machine.localeCompare(b.machine)),
+    machines: machineViews(userId, snap.leases, snap.serverTime),
     done: { ...done, reasons },
     seq: snap.seq,
     serverTime: snap.serverTime,

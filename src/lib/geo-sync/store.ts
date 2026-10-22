@@ -99,6 +99,24 @@ export function migrateGeoSyncSchema() {
       at INTEGER NOT NULL
     );
     CREATE INDEX IF NOT EXISTS geo_change_user_idx ON geo_change (user_id, seq);
+    CREATE TABLE IF NOT EXISTS geo_machine (
+      user_id TEXT NOT NULL,
+      machine TEXT NOT NULL,
+      info TEXT NOT NULL DEFAULT '{}',
+      last_seen INTEGER NOT NULL,
+      PRIMARY KEY (user_id, machine)
+    );
+    CREATE TABLE IF NOT EXISTS geo_command (
+      id TEXT PRIMARY KEY NOT NULL,
+      user_id TEXT NOT NULL,
+      machine TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      status TEXT NOT NULL,
+      note TEXT NOT NULL DEFAULT '',
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS geo_command_machine_idx ON geo_command (user_id, machine, status);
   `);
   migrated = true;
 }
@@ -514,6 +532,111 @@ export function importData(userId: string, data: ImportData, overwriteConfig: bo
   });
   tx();
   return { health, done, configTaken };
+}
+
+// ---- Máy đang chạy app (báo mỗi lần đồng bộ) và lệnh gửi xuống máy (tắt máy) ----
+
+export type MachineInfo = {
+  ip?: string;
+  platform?: string;
+  tabs?: number;
+  running?: number;
+  allowShutdown?: boolean;
+};
+
+export type MachineRow = { machine: string; info: MachineInfo; lastSeen: number };
+
+/** Lệnh quá hạn này mà máy chưa nhận thì bỏ: máy đang tắt sẵn mở lên hôm sau không bị tắt bất ngờ. */
+export const COMMAND_TTL_MS = 10 * 60_000;
+export const MACHINE_ONLINE_MS = 2 * 60_000;
+
+export function touchMachine(userId: string, machineRaw: unknown, infoRaw: unknown) {
+  const machine = clip(machineRaw, 80);
+  if (!machine) return;
+  const src = infoRaw && typeof infoRaw === "object" ? (infoRaw as Record<string, unknown>) : {};
+  const info: MachineInfo = {
+    ip: clip(src.ip, 64),
+    platform: clip(src.platform, 20),
+    tabs: Math.max(0, Math.min(999, Number(src.tabs) || 0)),
+    running: Math.max(0, Math.min(999, Number(src.running) || 0)),
+    allowShutdown: src.allowShutdown === true,
+  };
+  db()
+    .prepare(
+      "INSERT INTO geo_machine (user_id, machine, info, last_seen) VALUES (?, ?, ?, ?) " +
+        "ON CONFLICT(user_id, machine) DO UPDATE SET info = excluded.info, last_seen = excluded.last_seen"
+    )
+    .run(userId, machine, JSON.stringify(info), Date.now());
+}
+
+export function listMachines(userId: string): MachineRow[] {
+  const rows = db()
+    .prepare("SELECT machine, info, last_seen FROM geo_machine WHERE user_id = ? AND last_seen > ? ORDER BY machine")
+    .all(userId, Date.now() - 24 * 3600_000) as { machine: string; info: string; last_seen: number }[];
+  return rows.map((r) => {
+    let info: MachineInfo = {};
+    try { info = JSON.parse(r.info); } catch { /* bỏ qua */ }
+    return { machine: r.machine, info, lastSeen: r.last_seen };
+  });
+}
+
+export type CommandRow = { id: string; machine: string; kind: string; status: string; note: string; createdAt: number; updatedAt: number };
+
+export function queueCommand(userId: string, machineRaw: unknown, kind: "shutdown") {
+  const machine = clip(machineRaw, 80);
+  if (!machine) throw Error("Thiếu máy.");
+  const id = randomBytes(8).toString("hex");
+  const now = Date.now();
+  const tx = db().transaction(() => {
+    db()
+      .prepare("UPDATE geo_command SET status = 'replaced', updated_at = ? WHERE user_id = ? AND machine = ? AND kind = ? AND status = 'pending'")
+      .run(now, userId, machine, kind);
+    db()
+      .prepare("INSERT INTO geo_command (id, user_id, machine, kind, status, note, created_at, updated_at) VALUES (?, ?, ?, ?, 'pending', '', ?, ?)")
+      .run(id, userId, machine, kind, now, now);
+  });
+  tx();
+  return id;
+}
+
+/** Lệnh chờ của máy này (còn hạn) — trả về rồi đánh dấu đã giao để không giao hai lần. */
+export function takeCommands(userId: string, machineRaw: unknown): { id: string; kind: string; createdAt: number }[] {
+  const machine = clip(machineRaw, 80);
+  if (!machine) return [];
+  const now = Date.now();
+  const tx = db().transaction(() => {
+    db()
+      .prepare("UPDATE geo_command SET status = 'expired', updated_at = ? WHERE user_id = ? AND status = 'pending' AND created_at <= ?")
+      .run(now, userId, now - COMMAND_TTL_MS);
+    const rows = db()
+      .prepare("SELECT id, kind, created_at FROM geo_command WHERE user_id = ? AND machine = ? AND status = 'pending' ORDER BY created_at")
+      .all(userId, machine) as { id: string; kind: string; created_at: number }[];
+    const mark = db().prepare("UPDATE geo_command SET status = 'delivered', updated_at = ? WHERE id = ?");
+    for (const r of rows) mark.run(now, r.id);
+    return rows.map((r) => ({ id: r.id, kind: r.kind, createdAt: r.created_at }));
+  });
+  return tx();
+}
+
+export function ackCommand(userId: string, idRaw: unknown, statusRaw: unknown, noteRaw: unknown) {
+  const status = ["done", "canceled", "rejected", "failed"].includes(String(statusRaw)) ? String(statusRaw) : "failed";
+  db()
+    .prepare("UPDATE geo_command SET status = ?, note = ?, updated_at = ? WHERE user_id = ? AND id = ?")
+    .run(status, clip(noteRaw), Date.now(), userId, clip(idRaw, 40));
+}
+
+/** Lệnh gần nhất của từng máy (để /geo hiện trạng thái "đã gửi / máy đã nhận / đã huỷ"). */
+export function latestCommands(userId: string): Record<string, CommandRow> {
+  const rows = db()
+    .prepare("SELECT * FROM geo_command WHERE user_id = ? AND created_at > ? ORDER BY created_at")
+    .all(userId, Date.now() - 24 * 3600_000) as {
+    id: string; machine: string; kind: string; status: string; note: string; created_at: number; updated_at: number;
+  }[];
+  const out: Record<string, CommandRow> = {};
+  for (const r of rows) {
+    out[r.machine] = { id: r.id, machine: r.machine, kind: r.kind, status: r.status, note: r.note, createdAt: r.created_at, updatedAt: r.updated_at };
+  }
+  return out;
 }
 
 export function stats(userId: string) {

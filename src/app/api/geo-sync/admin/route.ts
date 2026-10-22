@@ -53,6 +53,14 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ ok: true, ...settings.overview(user.id), ...keyInfo(user.id) });
       case "releaseMachine":
         return NextResponse.json({ ok: true, ...store.release(user.id, { machine: body.machine }) });
+      case "shutdown": {
+        // Chỉ gửi cho máy của chính user; máy chỉ thực hiện khi đã bật "Cho phép tắt máy từ /geo" trong app.
+        const target = settings.overview(user.id).machines.find((m) => m.machine === body.machine);
+        if (!target) throw Error("Không thấy máy này.");
+        if (!target.allowShutdown) throw Error("Máy này chưa bật cho phép tắt từ xa trong Cài đặt app.");
+        store.queueCommand(user.id, target.machine, "shutdown");
+        return NextResponse.json({ ok: true, ...settings.overview(user.id), ...keyInfo(user.id) });
+      }
       case "rotateKey":
         store.rotateUserKey(user.id);
         return NextResponse.json({ ok: true, ...keyInfo(user.id) });
