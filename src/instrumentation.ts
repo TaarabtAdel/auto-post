@@ -34,6 +34,9 @@ export async function register() {
     const { migrateYoutubeListSchema } = await import("@/lib/youtube-list-schema");
     migrateYoutubeListSchema();
 
+    const { migrateNewsSettingsSchema } = await import("@/lib/news-settings");
+    migrateNewsSettingsSchema();
+
     const { migrateGeoSyncSchema } = await import("@/lib/geo-sync/store");
     migrateGeoSyncSchema();
 

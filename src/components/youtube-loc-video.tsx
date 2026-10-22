@@ -8,6 +8,7 @@ import {
   type YouTubeSearchHit,
 } from "@/lib/youtube-url";
 import { SplitContentModal } from "@/components/split-content-modal";
+import { NewsSettingsModal } from "@/components/news-settings-modal";
 import { ui } from "@/lib/dashboard-ui";
 import { copyToClipboard } from "@/lib/copy-to-clipboard";
 import { DEFAULT_YOUTUBE_GEMINI_TEMPLATE } from "@/lib/youtube-gemini-template";
@@ -140,6 +141,8 @@ export function YouTubeLocVideo() {
   const [failedLinks, setFailedLinks] = useState<FailedLink[]>([]);
   const [failedPage, setFailedPage] = useState(1);
   const [listReady, setListReady] = useState(false);
+  const [publishingNews, setPublishingNews] = useState(false);
+  const [showNewsSettings, setShowNewsSettings] = useState(false);
 
   async function persistResults(next: YouTubeSearchHit[]) {
     try {
@@ -591,6 +594,55 @@ export function YouTubeLocVideo() {
     setStatus(`Đã copy ${list.length} lệnh.`);
   }
 
+  async function publishSelectedAsNews() {
+    const list = selectedVideos();
+    if (list.length === 0) {
+      setError("Chọn ít nhất 1 video (cột Chọn).");
+      return;
+    }
+    if (
+      !window.confirm(
+        `Đăng ${list.length} bài tin từ video đã chọn?\nMỗi video: lấy thông tin → soạn nội dung AI → đăng tin (~20–40 giây/video).`
+      )
+    ) {
+      return;
+    }
+    setPublishingNews(true);
+    setError("");
+    const failures: string[] = [];
+    let done = 0;
+    for (let i = 0; i < list.length; i++) {
+      const v = list[i];
+      setStatus(`Đang đăng tin ${i + 1}/${list.length}: ${v.title}…`);
+      try {
+        const res = await fetch("/api/youtube/publish-news", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ url: v.url }),
+        });
+        const data = (await res.json().catch(() => ({}))) as {
+          ok?: boolean;
+          step?: string;
+          error?: string;
+        };
+        if (!res.ok || !data.ok) {
+          failures.push(
+            `${v.title}: ${data.step ? `[${data.step}] ` : ""}${data.error || `HTTP ${res.status}`}`
+          );
+          continue;
+        }
+        done++;
+      } catch {
+        failures.push(`${v.title}: lỗi kết nối (timeout hoặc mạng)`);
+      }
+    }
+    setPublishingNews(false);
+    setStatus(`Đăng tin xong ${done}/${list.length} video.`);
+    if (failures.length > 0) {
+      setError(failures.slice(0, 5).join(" · ") + (failures.length > 5 ? " …" : ""));
+    }
+  }
+
   /** Đánh dấu đã xem → tạo plan AUTO (video đầu trong các dòng chọn) → /auto?id=… */
   async function createAutoFromSelected() {
     const list = selectedVideos();
@@ -1039,6 +1091,17 @@ export function YouTubeLocVideo() {
         >
           Tạo AUTO đã chọn
         </button>
+        <button
+          type="button"
+          className={ui.btnSuccess}
+          disabled={busy || publishingNews}
+          onClick={() => void publishSelectedAsNews()}
+        >
+          {publishingNews ? "Đang đăng tin…" : "Đăng bài tin đã chọn"}
+        </button>
+        <button type="button" className={ui.btnSm} onClick={() => setShowNewsSettings(true)}>
+          Cấu hình đăng tin
+        </button>
         <button type="button" className={ui.btnSm} onClick={copyCommands}>
           Sao chép bộ lệnh
         </button>
@@ -1083,8 +1146,9 @@ export function YouTubeLocVideo() {
       </div>
       <p className="text-xs text-gray-500">
         «Tạo AUTO đã chọn»: tick «Đã xem» cho mọi dòng đang chọn, tạo plan AUTO từ{" "}
-        <strong>video đầu tiên</strong> trong số đó → mở wizard /auto. «Tải video đã chọn»:
-        copy link → YTSave. Xóa list chỉ gỡ khỏi bảng.
+        <strong>video đầu tiên</strong> trong số đó → mở wizard /auto. «Đăng bài tin đã chọn»:
+        mỗi video lấy thông tin → AI soạn bài → đăng tin. «Tải video đã chọn»: copy link →
+        YTSave. Xóa list chỉ gỡ khỏi bảng.
       </p>
 
       {error && <div className={ui.alertError}>{error}</div>}
@@ -1185,6 +1249,8 @@ export function YouTubeLocVideo() {
           onClose={() => setShowSplit(false)}
         />
       )}
+
+      {showNewsSettings && <NewsSettingsModal onClose={() => setShowNewsSettings(false)} />}
 
       {showTemplate && (
         <div className="border border-gray-400 bg-white p-2 space-y-2">
