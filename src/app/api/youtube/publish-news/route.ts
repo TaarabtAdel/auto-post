@@ -3,7 +3,11 @@ import { headers } from "next/headers";
 import { apiUnauthorized } from "@/lib/api-unauthorized";
 import { getAppSession } from "@/lib/app-session";
 import { isYouTubeUrl } from "@/lib/youtube-url";
-import { NewsPublishError, publishYouTubeAsNews } from "@/lib/news-publisher";
+import {
+  NewsPublishError,
+  publishYouTubeAsNews,
+  type NewsStepAttempts,
+} from "@/lib/news-publisher";
 import { appendSystemLog } from "@/lib/system-log";
 
 export const runtime = "nodejs";
@@ -25,15 +29,21 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Link YouTube không hợp lệ." }, { status: 400 });
   }
 
+  const attempts: NewsStepAttempts = {};
   try {
-    const result = await publishYouTubeAsNews(url, session.user.id);
+    const result = await publishYouTubeAsNews(url, session.user.id, attempts);
     appendSystemLog({
       category: "publish",
       level: "info",
       message: "Đăng tin từ YouTube | XONG",
-      detail: { url, title: result.title, userId: session.user.id },
+      detail: { url, title: result.title, attempts, userId: session.user.id },
     });
-    return NextResponse.json({ ok: true, title: result.title, response: result.response });
+    return NextResponse.json({
+      ok: true,
+      title: result.title,
+      attempts,
+      response: result.response,
+    });
   } catch (e) {
     const step = e instanceof NewsPublishError ? e.step : undefined;
     const message = e instanceof Error ? e.message : String(e);
@@ -41,8 +51,8 @@ export async function POST(request: NextRequest) {
       category: "publish",
       level: "error",
       message: "Đăng tin từ YouTube | LỖI",
-      detail: { url, step, error: message, userId: session.user.id },
+      detail: { url, step, error: message, attempts, userId: session.user.id },
     });
-    return NextResponse.json({ ok: false, step, error: message }, { status: 502 });
+    return NextResponse.json({ ok: false, step, error: message, attempts }, { status: 502 });
   }
 }

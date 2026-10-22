@@ -5,15 +5,45 @@ import { resolveNewsCredentials } from "@/lib/news-settings";
 
 const DEFAULT_TONE = "Hài hước vỡ ỡ / Uncontrollable Laughter & Breaking Character";
 const STEP_TIMEOUT_MS = 180_000;
+const STEP_MAX_ATTEMPTS = 3;
+const RETRY_DELAY_MS = 2_000;
 
 export type NewsPublishStep = "config" | "fetch-link-info" | "generate" | "publish-news";
 
 export class NewsPublishError extends Error {
   constructor(
     public step: NewsPublishStep,
-    message: string
+    message: string,
+    /** false: lỗi cấu hình / xác thực / 4xx — thử lại cũng không qua. */
+    public retryable = true
   ) {
     super(message);
+  }
+}
+
+export type NewsStepAttempts = Partial<Record<NewsPublishStep, number>>;
+
+/** Chạy một bước tối đa STEP_MAX_ATTEMPTS lần; bước trước đã xong thì không chạy lại. */
+async function withRetry<T>(
+  step: NewsPublishStep,
+  attempts: NewsStepAttempts,
+  fn: () => Promise<T>
+): Promise<T> {
+  for (let attempt = 1; ; attempt++) {
+    attempts[step] = attempt;
+    try {
+      return await fn();
+    } catch (e) {
+      const err =
+        e instanceof NewsPublishError
+          ? e
+          : new NewsPublishError(step, e instanceof Error ? e.message : String(e));
+      if (!err.retryable || attempt >= STEP_MAX_ATTEMPTS) {
+        if (attempt > 1) err.message = `${err.message} (đã thử ${attempt} lần)`;
+        throw err;
+      }
+      await new Promise((r) => setTimeout(r, RETRY_DELAY_MS * attempt));
+    }
   }
 }
 
@@ -83,9 +113,11 @@ async function callJson<T>(
   if (res.status >= 300 && res.status < 400) {
     throw new NewsPublishError(
       step,
-      "Bị chuyển về trang cookie check — NEWS_AI_AUTH_TOKEN hết hạn hoặc sai."
+      "Bị chuyển về trang cookie check — token news API hết hạn hoặc sai.",
+      false
     );
   }
+  const retryableStatus = res.status >= 500 || res.status === 408 || res.status === 429;
 
   const text = await res.text();
   let data: unknown;
@@ -99,7 +131,8 @@ async function callJson<T>(
   if (!res.ok || obj?.success === false) {
     throw new NewsPublishError(
       step,
-      obj?.error || obj?.message || `HTTP ${res.status}`
+      obj?.error || obj?.message || `HTTP ${res.status}`,
+      res.ok || retryableStatus
     );
   }
   return data as T;
@@ -150,20 +183,24 @@ function buildContentHtml(videoUrl: string, blogContent: string): string {
 export type NewsPublishResult = {
   title: string;
   response: unknown;
+  attempts: NewsStepAttempts;
 };
 
 export async function publishYouTubeAsNews(
   rawUrl: string,
-  userId: string
+  userId: string,
+  attempts: NewsStepAttempts = {}
 ): Promise<NewsPublishResult> {
   const cfg = readConfig(userId);
   const videoUrl = normalizeYouTubeUrl(rawUrl);
 
-  const info = await callJson<LinkInfo>(
-    cfg,
-    "fetch-link-info",
-    `/api/fetch-link-info?url=${encodeURIComponent(videoUrl)}`,
-    { method: "GET" }
+  const info = await withRetry("fetch-link-info", attempts, () =>
+    callJson<LinkInfo>(
+      cfg,
+      "fetch-link-info",
+      `/api/fetch-link-info?url=${encodeURIComponent(videoUrl)}`,
+      { method: "GET" }
+    )
   );
   const subjectName = info.title?.trim() || videoUrl;
   const images = (info.images ?? [])
@@ -171,38 +208,44 @@ export async function publishYouTubeAsNews(
     .filter((u): u is string => !!u);
   const primaryImage = info.primaryImage || images[0] || "";
 
-  const gen = await callJson<{ data?: GenerateData }>(cfg, "generate", "/api/generate", {
-    method: "POST",
-    body: {
-      subjectName,
-      description: subjectName,
-      videoUrl,
-      targetTone: cfg.targetTone,
-      primaryImage,
-      extractedImages: images,
-    },
+  const d = await withRetry("generate", attempts, async () => {
+    const gen = await callJson<{ data?: GenerateData }>(cfg, "generate", "/api/generate", {
+      method: "POST",
+      body: {
+        subjectName,
+        description: subjectName,
+        videoUrl,
+        targetTone: cfg.targetTone,
+        primaryImage,
+        extractedImages: images,
+      },
+    });
+    const data = gen.data ?? {};
+    if (!data.blogTitle || !data.blogContent) {
+      throw new NewsPublishError("generate", "Thiếu blogTitle / blogContent trong kết quả.");
+    }
+    return data as GenerateData & { blogTitle: string; blogContent: string };
   });
-  const d = gen.data ?? {};
-  if (!d.blogTitle || !d.blogContent) {
-    throw new NewsPublishError("generate", "Thiếu blogTitle / blogContent trong kết quả.");
-  }
 
   const summary = [d.reelsCopy?.trim(), (d.hashtags ?? []).join(" ")]
     .filter(Boolean)
     .join("\n");
+  const publishBody = {
+    userName: cfg.userName,
+    password: cfg.password,
+    name: d.blogTitle,
+    newsGroupId: cfg.newsGroupId,
+    summary,
+    avatarLink: d.primaryImage || primaryImage,
+    content: buildContentHtml(videoUrl, d.blogContent),
+  };
 
-  const response = await callJson<unknown>(cfg, "publish-news", "/api/publish-news", {
-    method: "POST",
-    body: {
-      userName: cfg.userName,
-      password: cfg.password,
-      name: d.blogTitle,
-      newsGroupId: cfg.newsGroupId,
-      summary,
-      avatarLink: d.primaryImage || primaryImage,
-      content: buildContentHtml(videoUrl, d.blogContent),
-    },
-  });
+  const response = await withRetry("publish-news", attempts, () =>
+    callJson<unknown>(cfg, "publish-news", "/api/publish-news", {
+      method: "POST",
+      body: publishBody,
+    })
+  );
 
-  return { title: d.blogTitle, response };
+  return { title: d.blogTitle, response, attempts };
 }
