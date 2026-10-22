@@ -8,6 +8,7 @@ type SettingsForm = {
   proxySourceUrl: string;
   proxyText: string;
   articleText: string;
+  backupArticleText: string;
   waitMinSec: number | string;
   waitMaxSec: number | string;
   proxyTimeoutSec: number | string;
@@ -25,9 +26,14 @@ type ProxyRow = {
   protocol: string;
   auth: boolean;
   status: string;
-  kind: "live" | "dead" | "busy" | "untried" | "unsupported";
+  kind: "live" | "dead" | "busy" | "untried" | "exhausted" | "unsupported";
   title: string;
 };
+
+type BackupInfo = { remaining: number; rotatedAt: number | null; moved: number };
+
+const BACKUP_THRESHOLD = 100;
+const BACKUP_BATCH = 20;
 
 type Machine = {
   machine: string;
@@ -60,6 +66,7 @@ function ago(ms: number) {
 
 type Overview = {
   form: SettingsForm;
+  backup: BackupInfo;
   machines: Machine[];
   done: { total: number; ok: number; bad: number; unknown: number; reasons: { note: string; count: number }[] };
   serverTime: number;
@@ -70,7 +77,7 @@ type Overview = {
 
 type Table = { rows: ProxyRow[]; skipped: number; total: number; counts: Record<string, number> };
 
-const FILTERS = ["", "Chưa thử", "Không", "Đang dùng", "Live", "Không hỗ trợ"];
+const FILTERS = ["", "Chưa thử", "Hết bài", "Không", "Đang dùng", "Live", "Không hỗ trợ"];
 const MAX_ROWS = 1000;
 
 const BADGE: Record<ProxyRow["kind"], string> = {
@@ -78,6 +85,7 @@ const BADGE: Record<ProxyRow["kind"], string> = {
   dead: "bg-red-100 text-red-800",
   busy: "bg-blue-100 text-blue-800",
   untried: "bg-gray-100 text-gray-700",
+  exhausted: "bg-amber-100 text-amber-800",
   unsupported: "bg-violet-100 text-violet-800",
 };
 
@@ -538,6 +546,27 @@ export function GeoSettingsPanel() {
             Xoá lịch sử đã chạy
           </button>
         </div>
+
+        <label className="block text-sm font-medium text-gray-800 pt-2">Link dự phòng (mỗi dòng một URL)</label>
+        <textarea
+          className={`${ui.textarea} font-mono text-xs whitespace-pre overflow-x-auto`}
+          rows={7}
+          spellCheck={false}
+          value={form.backupArticleText}
+          onChange={(e) => edit("backupArticleText", e.target.value)}
+        />
+        <p className="text-xs text-gray-500">{articleHint(form.backupArticleText)}</p>
+        <p className="text-xs text-gray-600 whitespace-pre-line">
+          {[
+            `Khi Chưa thử dưới ${BACKUP_THRESHOLD}: tự Xoá trạng thái proxy, rồi cắt ${BACKUP_BATCH} link đầu ở đây sang thay toàn bộ Danh sách bài viết (kiểm tra mỗi phút, cách nhau ít nhất 10 phút).`,
+            overview.backup.rotatedAt
+              ? `Lần chuyển gần nhất: ${new Date(overview.backup.rotatedAt).toLocaleString("vi-VN", { hour12: false })} · ${overview.backup.moved} link.`
+              : "",
+            table && table.total - (table.counts["Không hỗ trợ"] || 0) <= BACKUP_THRESHOLD
+              ? `Chưa tự chuyển được: cần hơn ${BACKUP_THRESHOLD} proxy dùng được.`
+              : "",
+          ].filter(Boolean).join("\n")}
+        </p>
       </section>
 
       <section className={`${ui.card} ${ui.cardPad} space-y-3`}>

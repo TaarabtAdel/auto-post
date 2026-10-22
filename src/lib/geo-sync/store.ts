@@ -261,6 +261,39 @@ export function configValue(userId: string): Record<string, unknown> {
   return readConfig(userId);
 }
 
+/** Bài (articlePairKey) đã có bản ghi theo từng proxy — kể cả lỗi / chưa rõ: app coi là đã chạy. */
+export function doneUrlsByProxy(userId: string): Map<string, Set<string>> {
+  const out = new Map<string, Set<string>>();
+  const rows = db().prepare("SELECT proxy_key, url FROM geo_article_done WHERE user_id = ?").all(userId) as {
+    proxy_key: string;
+    url: string;
+  }[];
+  for (const r of rows) {
+    let set = out.get(r.proxy_key);
+    if (!set) out.set(r.proxy_key, (set = new Set()));
+    set.add(r.url);
+  }
+  return out;
+}
+
+/** User có khoá config này (vd. backupArticleText) — dùng cho việc nền theo từng user. */
+export function usersWithConfigKey(key: string): string[] {
+  const rows = db()
+    .prepare("SELECT user_id, value FROM geo_kv WHERE key = 'config' AND value LIKE ?")
+    .all(`%"${key}"%`) as { user_id: string; value: string }[];
+  return rows.map((r) => r.user_id);
+}
+
+/** Đổi danh sách bài + xoá trạng thái proxy trong cùng transaction; app nhận một snapshot đầy đủ. */
+export function applyArticleRotation(userId: string, patch: Record<string, unknown>) {
+  const tx = db().transaction(() => {
+    writeConfig(userId, { ...readConfig(userId), ...patch });
+    db().prepare("DELETE FROM geo_proxy_health WHERE user_id = ?").run(userId);
+    logChange(userId, "reset");
+  });
+  tx();
+}
+
 export function activeLeases(userId: string): LeaseRow[] {
   const rows = db()
     .prepare(

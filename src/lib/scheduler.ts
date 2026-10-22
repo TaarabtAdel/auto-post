@@ -33,6 +33,8 @@ async function runCronTick(source: "startup" | "interval") {
       );
       await processDueAutoCampaigns();
       await processPublishQueueTick();
+      const { runGeoBackupRotation } = await import("@/lib/geo-sync/settings");
+      runGeoBackupRotation(cronLog);
     }
     cronLog(`tick xong (${source})`);
   } catch (err) {

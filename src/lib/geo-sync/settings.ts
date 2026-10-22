@@ -260,6 +260,7 @@ export type SettingsForm = {
   proxySourceUrl: string;
   proxyText: string;
   articleText: string;
+  backupArticleText: string;
   waitMinSec: number | string;
   waitMaxSec: number | string;
   proxyTimeoutSec: number | string;
@@ -273,6 +274,8 @@ export type SettingsForm = {
 export function settingsPatch(form: Partial<SettingsForm>) {
   const articles = validateArticles(form.articleText);
   if (articles.errors.length) throw Error(articles.errors[0]);
+  const backup = validateArticles(form.backupArticleText);
+  if (backup.errors.length) throw Error("Link dự phòng: " + backup.errors[0]);
   const parsed = parseProxySource(form.proxyText);
   const raw = lines(form.proxyText).filter((l) => !l.startsWith("#"));
   if (raw.length && !parsed.proxies.length) {
@@ -287,6 +290,7 @@ export function settingsPatch(form: Partial<SettingsForm>) {
     proxies: parsed.proxies,
     articleText: articles.urls.join("\n"),
     articles: articles.urls,
+    backupArticleText: backup.urls.join("\n"),
     waitMinSec: waitMin,
     waitMaxSec: waitMax,
     proxyTimeoutSec: intIn(form.proxyTimeoutSec, 5, 180, "Timeout proxy phải từ 5 đến 180 giây."),
@@ -312,16 +316,22 @@ function configProxyText(config: Record<string, unknown>): string {
   return "";
 }
 
+/** Giống configArticles của app: config.articles, không có thì articleText. */
+function configArticles(config: Record<string, unknown>): string[] {
+  const list = Array.isArray(config.articles) && config.articles.length
+    ? (config.articles as unknown[])
+    : lines(config.articleText);
+  return list.map(String).filter((u) => /^https?:\/\//i.test(u));
+}
+
 /** Form hiện tại từ config trên máy chủ (thiếu khoá nào thì lấy mặc định của app). */
 export function settingsForm(config: Record<string, unknown>): SettingsForm {
   const t = { ...DEFAULT_TIMING, ...config } as Record<string, unknown>;
-  const articles = Array.isArray(config.articles) && config.articles.length
-    ? (config.articles as string[])
-    : lines(config.articleText);
   return {
     proxySourceUrl: String(config.proxySourceUrl || DEFAULT_PROXY_SOURCES),
     proxyText: configProxyText(config),
-    articleText: articles.join("\n"),
+    articleText: configArticles(config).join("\n"),
+    backupArticleText: lines(config.backupArticleText).join("\n"),
     waitMinSec: Number(t.waitMinSec),
     waitMaxSec: Number(t.waitMaxSec),
     proxyTimeoutSec: Number(t.proxyTimeoutSec),
@@ -340,16 +350,28 @@ export type ProxyRow = {
   protocol: string;
   auth: boolean;
   status: string;
-  kind: "live" | "dead" | "busy" | "untried" | "unsupported";
+  kind: "live" | "dead" | "busy" | "untried" | "exhausted" | "unsupported";
   title: string;
 };
 
-/** Bảng proxy giống app: Chưa thử · Không · Đang dùng (máy nào giữ) · Live. */
+/**
+ * Bảng proxy giống app: Chưa thử · Hết bài · Không · Đang dùng (máy nào giữ) · Live.
+ * «Hết bài»: chưa có trạng thái nhưng đã có bản ghi cho mọi bài (vd. sau «Xoá trạng thái»).
+ * App bỏ qua những proxy này, nên không tính là Chưa thử.
+ */
 export function inspectProxies(userId: string, text: unknown) {
   const { proxies, skipped } = parseProxySource(text);
   const health = store.healthMap(userId);
   const leaseBy = new Map<string, store.LeaseRow>();
   for (const l of store.activeLeases(userId)) if (l.key.startsWith("proxy:")) leaseBy.set(l.key.slice(6), l);
+  const articleKeys = [
+    ...new Set(configArticles(store.configValue(userId)).map((u) => store.articlePairKey(u)).filter(Boolean)),
+  ];
+  const doneBy = articleKeys.length ? store.doneUrlsByProxy(userId) : new Map<string, Set<string>>();
+  const ranAll = (key: string) => {
+    const done = doneBy.get(key);
+    return Boolean(done) && articleKeys.every((u) => done!.has(u));
+  };
   const rows: ProxyRow[] = proxies.map((p) => {
     const row: ProxyRow = {
       line: proxyToLine(p),
@@ -371,11 +393,82 @@ export function inspectProxies(userId: string, text: unknown) {
     if (lease) return { ...row, status: "Đang dùng", kind: "busy", title: `Máy ${lease.machine}` + (ip ? " · " + ip : "") };
     if (h?.status === "live") return { ...row, status: "Live", kind: "live", title: ip || "Kết nối thành công" };
     if (h && h.status !== "unknown" && h.status !== "pending") return { ...row, status: "Không", kind: "dead", title: h.note || "Proxy lỗi" };
+    if (ranAll(key)) {
+      return { ...row, status: "Hết bài", kind: "exhausted", title: "Đã chạy mọi bài trong danh sách — app bỏ qua." };
+    }
     return row;
   });
   const counts: Record<string, number> = {};
   for (const r of rows) counts[r.status] = (counts[r.status] || 0) + 1;
   return { rows, skipped, total: rows.length, counts };
+}
+
+// ---- Link dự phòng: Chưa thử < ngưỡng → xoá trạng thái proxy + thay danh sách bài bằng 20 link dự phòng ----
+
+export const BACKUP_UNTRIED_THRESHOLD = 100;
+export const BACKUP_BATCH = 20;
+const BACKUP_COOLDOWN_MS = 10 * 60_000;
+
+export type BackupRotationInfo = {
+  remaining: number;
+  rotatedAt: number | null;
+  moved: number;
+};
+
+function backupInfo(config: Record<string, unknown>): BackupRotationInfo {
+  return {
+    remaining: lines(config.backupArticleText).length,
+    rotatedAt: Number(config.backupRotatedAt) || null,
+    moved: Number(config.backupMoved) || 0,
+  };
+}
+
+/**
+ * Chạy khi Chưa thử < BACKUP_UNTRIED_THRESHOLD và còn link dự phòng.
+ * Chỉ chạy khi danh sách proxy dùng được > ngưỡng: nếu không, ngay sau khi xoá trạng thái
+ * Chưa thử vẫn dưới ngưỡng và link dự phòng sẽ bị cắt liên tục.
+ */
+export function rotateBackupIfLow(userId: string): { rotated: boolean; info: BackupRotationInfo } {
+  const config = store.configValue(userId);
+  const backup = lines(config.backupArticleText);
+  if (!backup.length) return { rotated: false, info: backupInfo(config) };
+
+  const table = inspectProxies(userId, configProxyText(config));
+  const usable = table.total - (table.counts["Không hỗ trợ"] || 0);
+  const untried = table.counts["Chưa thử"] || 0;
+  const cooling = Date.now() - (Number(config.backupRotatedAt) || 0) < BACKUP_COOLDOWN_MS;
+  if (usable <= BACKUP_UNTRIED_THRESHOLD || untried >= BACKUP_UNTRIED_THRESHOLD || cooling) {
+    return { rotated: false, info: backupInfo(config) };
+  }
+
+  const moved = backup.slice(0, BACKUP_BATCH);
+  const rest = backup.slice(BACKUP_BATCH);
+  store.applyArticleRotation(userId, {
+    articles: moved,
+    articleText: moved.join("\n"),
+    backupArticleText: rest.join("\n"),
+    backupRotatedAt: Date.now(),
+    backupMoved: moved.length,
+  });
+  return { rotated: true, info: backupInfo(store.configValue(userId)) };
+}
+
+/** Việc nền (cron mỗi phút): kiểm tra mọi user có link dự phòng. */
+export function runGeoBackupRotation(log: (message: string, detail: Record<string, unknown>) => void) {
+  for (const userId of store.usersWithConfigKey("backupArticleText")) {
+    try {
+      const r = rotateBackupIfLow(userId);
+      if (r.rotated) {
+        log("Geo — Chưa thử dưới ngưỡng: xoá trạng thái proxy, chuyển link dự phòng sang Danh sách bài viết", {
+          userId,
+          moved: r.info.moved,
+          backupRemaining: r.info.remaining,
+        });
+      }
+    } catch (e) {
+      log("Geo — chuyển link dự phòng lỗi", { userId, error: e instanceof Error ? e.message : String(e) });
+    }
+  }
 }
 
 export type MachineView = {
@@ -448,6 +541,7 @@ export function overview(userId: string) {
     .slice(0, 3);
   return {
     form: settingsForm(snap.config),
+    backup: backupInfo(snap.config),
     machines: machineViews(userId, snap.leases, snap.serverTime),
     done: { ...done, reasons },
     seq: snap.seq,
